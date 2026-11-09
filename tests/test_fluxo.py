@@ -1,4 +1,5 @@
 import json
+from http.cookiejar import CookieJar
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import sqlite3
@@ -7,20 +8,24 @@ import threading
 import unittest
 from pathlib import Path
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import Request, urlopen, build_opener, HTTPCookieProcessor
 
 from servidor import criar_servidor, limpar_expirados, preparar
 from transporte import Fila
+from acesso import configurar_conta, preparar_demo
 
 
 class Fluxo(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.pasta = Path(self.temp.name)
-        self.server, self.codigo = criar_servidor(('127.0.0.1', 0), self.pasta)
+        self.server, self.codigo = criar_servidor(('127.0.0.1', 0), self.pasta, modo_demo=True)
         self.url = 'http://127.0.0.1:' + str(self.server.server_port)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        self.cookies = CookieJar()
+        self.navegador = build_opener(HTTPCookieProcessor(self.cookies))
+        self.perfil = self.api('/api/login', {'instituicao':'51995537839', 'usuario':'admdev', 'senha':'123456'})
 
     def tearDown(self):
         self.server.shutdown()
@@ -29,9 +34,13 @@ class Fluxo(unittest.TestCase):
         self.temp.cleanup()
 
     def api(self, rota, dados=None, codigo=None):
-        req = Request(self.url + rota, data=json.dumps(dados).encode() if dados is not None else None,
-                      headers={'X-Codigo': self.codigo if codigo is None else codigo})
-        with urlopen(req, timeout=3) as r:
+        headers = {'X-Portal':'tutora', 'Content-Type':'application/json'}
+        cliente = self.navegador
+        if codigo is not None:
+            headers['X-Codigo'] = codigo
+            cliente = build_opener()
+        req = Request(self.url + rota, data=json.dumps(dados).encode() if dados is not None else None, headers=headers)
+        with cliente.open(req, timeout=8) as r:
             return json.load(r)
 
     def test_acesso_e_validacao(self):
@@ -84,25 +93,48 @@ class Fluxo(unittest.TestCase):
         self.assertEqual(len(lista), 3)
         self.assertEqual({p['dispositivo'] for p in lista}, {'Sala 1', 'Sala 2'})
 
-    def test_exclusao_48h_inclui_pendentes_e_preserva_recentes(self):
+    def test_exclusao_48h_apos_atendimento_preserva_pendentes(self):
         instante = datetime.now(timezone.utc)
-        for i, horas in enumerate([49, 48, 47]):
-            self.api('/api/pedidos', {'id':str(i), 'frase':'Pedido', 'dispositivo':'MVP'})
-        with closing(sqlite3.connect(self.pasta / 'pedidos.sqlite3')) as con, con:
-            for i, horas in enumerate([49, 48, 47]):
-                con.execute('UPDATE pedidos SET recebido=? WHERE id=?', ((instante-timedelta(hours=horas)).isoformat(),str(i)))
-        self.assertEqual(limpar_expirados(self.pasta/'pedidos.sqlite3', instante), 2)
-        self.assertEqual([p['id'] for p in self.api('/api/pedidos')], ['2'])
+        db = self.pasta/'pedidos.sqlite3'
+        antigo = (instante-timedelta(days=10)).isoformat()
+        casos = [('novo', 'novo', 100), ('recebido', 'recebido', 100),
+                 ('expirado', 'atendido', 49), ('limite', 'atendido', 48),
+                 ('recente', 'atendido', 47)]
+        with closing(sqlite3.connect(db)) as con, con:
+            for identificador, estado, horas in casos:
+                con.execute('INSERT INTO pedidos (id,frase,dispositivo,recebido,estado,atualizado) VALUES (?,?,?,?,?,?)',
+                            (identificador, 'Pedido', 'MVP', antigo, estado,
+                             (instante-timedelta(hours=horas)).isoformat()))
+        self.assertEqual(limpar_expirados(db, instante), 2)
+        self.assertEqual({p['id'] for p in self.api('/api/pedidos')}, {'novo','recebido','recente'})
         with self.assertRaises(HTTPError) as e:
-            self.api('/api/confirmar', {'id':'0'})
+            self.api('/api/confirmar', {'id':'expirado'})
         self.assertEqual(e.exception.code, 404)
+
+    def test_atendimento_inicia_48h_e_repeticoes_nao_renovam_prazo(self):
+        self.api('/api/pedidos', {'id':'antigo', 'frase':'Pedido', 'dispositivo':'MVP'})
+        db = self.pasta/'pedidos.sqlite3'
+        with closing(sqlite3.connect(db)) as con, con:
+            antigo = (datetime.now(timezone.utc)-timedelta(days=10)).isoformat()
+            con.execute('UPDATE pedidos SET recebido=?, atualizado=? WHERE id=?', (antigo, antigo, 'antigo'))
+        self.api('/api/confirmar', {'id':'antigo'})
+        antes = datetime.now(timezone.utc)
+        self.api('/api/atender', {'id':'antigo'})
+        pedido = self.api('/api/pedidos')[0]
+        atendimento = datetime.fromisoformat(pedido['atualizado'])
+        self.assertGreaterEqual(atendimento, antes)
+        self.api('/api/confirmar', {'id':'antigo'})
+        self.api('/api/atender', {'id':'antigo'})
+        self.assertEqual(self.api('/api/pedidos')[0]['atualizado'], pedido['atualizado'])
+        self.assertEqual(limpar_expirados(db, atendimento+timedelta(hours=48, microseconds=-1000000)), 0)
+        self.assertEqual(limpar_expirados(db, atendimento+timedelta(hours=48)), 1)
 
     def test_persistencia_apos_reabrir_e_limpeza_na_inicializacao(self):
         self.api('/api/pedidos', {'id':'mantido', 'frase':'Pedido', 'dispositivo':'MVP'})
         self.api('/api/confirmar', {'id':'mantido'})
         self.api('/api/pedidos', {'id':'antigo', 'frase':'Pedido', 'dispositivo':'MVP'})
         with closing(sqlite3.connect(self.pasta/'pedidos.sqlite3')) as con, con:
-            con.execute('UPDATE pedidos SET recebido=? WHERE id=?', ((datetime.now(timezone.utc)-timedelta(hours=49)).isoformat(),'antigo'))
+            con.execute("UPDATE pedidos SET estado='atendido', recebido=?, atualizado=? WHERE id=?", ((datetime.now(timezone.utc)-timedelta(days=10)).isoformat(), (datetime.now(timezone.utc)-timedelta(hours=49)).isoformat(), 'antigo'))
         _, codigo = preparar(self.pasta)
         self.assertEqual(codigo, self.codigo)
         lista = self.api('/api/pedidos')
@@ -131,6 +163,78 @@ class Fluxo(unittest.TestCase):
             con.executemany('INSERT INTO pedidos (id,frase,dispositivo,recebido,atualizado) VALUES (?,?,?,?,?)',
                             [(str(i),'Pedido','MVP',datetime.now(timezone.utc).isoformat(),datetime.now(timezone.utc).isoformat()) for i in range(105)])
         self.assertEqual(len(self.api('/api/pedidos')), 105)
+
+
+    def test_login_demo_retorna_perfil_e_sessao(self):
+        self.assertEqual(self.perfil['perfil'], 'admdev')
+        self.assertEqual(self.perfil['usuario'], 'admdev')
+        self.assertEqual(self.api('/api/sessao')['cnpj'], '51995537839')
+        self.assertEqual(self.api('/api/config')['retencao_horas'], 48)
+        cookie = next(iter(self.cookies))
+        self.assertTrue(cookie.has_nonstandard_attr('HttpOnly'))
+        self.assertEqual(cookie.get_nonstandard_attr('SameSite'), 'Strict')
+        with closing(sqlite3.connect(self.pasta/'pedidos.sqlite3')) as con:
+            sal, resumo = con.execute('SELECT sal,senha_hash FROM conta_tutora').fetchone()
+            token_hash = con.execute('SELECT token_hash FROM sessoes').fetchone()[0]
+        self.assertNotIn('123456', (sal, resumo))
+        self.assertNotEqual(token_hash, cookie.value)
+
+    def test_credenciais_erradas_nao_identificam_campo(self):
+        base = {'instituicao':'51995537839', 'usuario':'admdev', 'senha':'123456'}
+        for campo in base:
+            dados = dict(base)
+            dados[campo] = 'incorreto'
+            with self.assertRaises(HTTPError) as e:
+                self.api('/api/login', dados, codigo='sem-sessao')
+            self.assertEqual(e.exception.code, 401)
+            self.assertEqual(json.load(e.exception)['erro'], 'CNPJ, usuário ou senha incorretos.')
+
+    def test_credencial_dispositivo_envia_mas_nao_le_nem_atende(self):
+        self.api('/api/pedidos', {'id':'dispositivo','frase':'Pedido','dispositivo':'MVP'}, codigo=self.codigo)
+        for rota, dados in [('/api/pedidos',None),('/api/config',None),('/api/confirmar',{'id':'dispositivo'}),('/api/atender',{'id':'dispositivo'})]:
+            with self.assertRaises(HTTPError) as e:
+                self.api(rota, dados, codigo=self.codigo)
+            self.assertEqual(e.exception.code, 401)
+
+    def test_logout_revoga_sessao(self):
+        self.api('/api/logout', {})
+        with self.assertRaises(HTTPError) as e:
+            self.api('/api/pedidos')
+        self.assertEqual(e.exception.code, 401)
+        self.assertEqual(len(list(self.cookies)), 0)
+
+    def test_sessao_expirada_exige_login(self):
+        with closing(sqlite3.connect(self.pasta/'pedidos.sqlite3')) as con, con:
+            con.execute('UPDATE sessoes SET expira=0')
+        with self.assertRaises(HTTPError) as e:
+            self.api('/api/pedidos')
+        self.assertEqual(e.exception.code, 401)
+
+    def test_limite_de_tentativas(self):
+        dados = {'instituicao':'51995537839','usuario':'admdev','senha':'errada'}
+        for i in range(5):
+            with self.assertRaises(HTTPError) as e:
+                self.api('/api/login', dados, codigo='sem-sessao')
+            self.assertEqual(e.exception.code, 429 if i == 4 else 401)
+        with self.assertRaises(HTTPError) as e:
+            self.api('/api/login', {'instituicao':'51995537839','usuario':'admdev','senha':'123456'}, codigo='sem-sessao')
+        self.assertEqual(e.exception.code, 429)
+
+    def test_demo_nao_substitui_conta_existente_e_redefinir_revoga_sessoes(self):
+        configurar_conta(self.pasta/'pedidos.sqlite3', '12345678000190', 'Tutora', 'senha-de-teste-2026')
+        preparar_demo(self.pasta/'pedidos.sqlite3')
+        with self.assertRaises(HTTPError):
+            self.api('/api/pedidos')
+        perfil = self.api('/api/login', {'instituicao':'12.345.678/0001-90','usuario':'tutora','senha':'senha-de-teste-2026'})
+        self.assertEqual(perfil['perfil'], 'tutora')
+        self.assertEqual(perfil['cnpj'], '12345678000190')
+
+    def test_post_de_navegador_exige_cabecalho_do_portal(self):
+        req = Request(self.url+'/api/logout', data=b'{}', headers={'Content-Type':'application/json'})
+        with self.assertRaises(HTTPError) as e:
+            self.navegador.open(req)
+        self.assertEqual(e.exception.code, 403)
+        self.assertEqual(self.api('/api/sessao')['perfil'], 'admdev')
 
 
 if __name__ == '__main__':

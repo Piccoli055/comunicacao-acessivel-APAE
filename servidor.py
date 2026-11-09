@@ -2,6 +2,8 @@
 import argparse
 from contextlib import closing
 import hmac
+from http.cookies import SimpleCookie, CookieError
+from acesso import (preparar_acesso, preparar_demo, autenticar, consultar_sessao, encerrar_sessao, ErroAcesso, DURACAO_SESSAO)
 import json
 import secrets
 import sqlite3
@@ -23,7 +25,7 @@ ARQUIVOS = {'/': ('tutora.html', 'text/html; charset=utf-8'),
 def limpar_expirados(db, instante=None):
     limite = ((instante or datetime.now(timezone.utc)) - timedelta(hours=RETENCAO_HORAS)).isoformat()
     with closing(sqlite3.connect(db, timeout=10)) as con, con:
-        return con.execute('DELETE FROM pedidos WHERE julianday(recebido) <= julianday(?)', (limite,)).rowcount
+        return con.execute("DELETE FROM pedidos WHERE estado='atendido' AND julianday(atualizado) <= julianday(?)", (limite,)).rowcount
 
 
 
@@ -43,11 +45,14 @@ def preparar(pasta):
         con.execute('UPDATE pedidos SET atualizado=recebido WHERE atualizado IS NULL')
         con.execute('CREATE INDEX IF NOT EXISTS idx_pedidos_recebido ON pedidos(recebido)')
     limpar_expirados(db)
+    preparar_acesso(db)
     return db, segredo.read_text(encoding='utf-8').strip()
 
 
-def criar_servidor(endereco, pasta):
+def criar_servidor(endereco, pasta, modo_demo=False):
     db, segredo = preparar(Path(pasta))
+    if modo_demo:
+        preparar_demo(db)
 
     class Servidor(ThreadingHTTPServer):
         daemon_threads = True
@@ -59,7 +64,7 @@ def criar_servidor(endereco, pasta):
                 self.ultima_limpeza = time.monotonic()
 
     class Handler(BaseHTTPRequestHandler):
-        def responder(self, status, valor):
+        def responder(self, status, valor, cookie=None):
             corpo = json.dumps(valor, ensure_ascii=False).encode('utf-8')
             self.send_response(status)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
@@ -67,14 +72,29 @@ def criar_servidor(endereco, pasta):
             self.send_header('X-Content-Type-Options', 'nosniff')
             self.send_header('Referrer-Policy', 'no-referrer')
             self.send_header('Content-Length', str(len(corpo)))
+            if cookie:
+                self.send_header('Set-Cookie', cookie)
             self.end_headers()
             self.wfile.write(corpo)
 
-        def autorizado(self):
-            if hmac.compare_digest(self.headers.get('X-Codigo', '').encode('utf-8'), segredo.encode('utf-8')):
+        def token_sessao(self):
+            try:
+                cookies = SimpleCookie(self.headers.get('Cookie', ''))
+                return cookies['portal_sessao'].value if 'portal_sessao' in cookies else ''
+            except CookieError:
+                return ''
+
+        def autorizado(self, aceitar_dispositivo=False):
+            if consultar_sessao(db, self.token_sessao()):
                 return True
-            self.responder(401, {'erro': 'Código de acesso incorreto.'})
+            if aceitar_dispositivo and hmac.compare_digest(self.headers.get('X-Codigo', '').encode('utf-8'), segredo.encode('utf-8')):
+                return True
+            self.responder(401, {'erro': 'Entre com instituição, usuário e senha para continuar.'})
             return False
+
+        def cookie(self, token='', apagar=False):
+            return ('portal_sessao=' + token + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' +
+                    ('0' if apagar else str(DURACAO_SESSAO)))
 
         def do_GET(self):
             rota = urlsplit(self.path).path
@@ -89,8 +109,11 @@ def criar_servidor(endereco, pasta):
                 self.send_header('Content-Length', str(len(corpo)))
                 self.end_headers()
                 self.wfile.write(corpo)
-            elif rota in ('/api/pedidos', '/api/config'):
+            elif rota in ('/api/pedidos', '/api/config', '/api/sessao'):
                 if not self.autorizado():
+                    return
+                if rota == '/api/sessao':
+                    self.responder(200, consultar_sessao(db, self.token_sessao()))
                     return
                 if rota == '/api/config':
                     self.responder(200, {'retencao_horas': RETENCAO_HORAS})
@@ -104,8 +127,14 @@ def criar_servidor(endereco, pasta):
                 self.responder(404, {'erro': 'Página não encontrada.'})
 
         def do_POST(self):
-            if not self.autorizado():
+            rota = urlsplit(self.path).path
+            if rota not in ('/api/login', '/api/logout') and not self.autorizado(aceitar_dispositivo=rota == '/api/pedidos'):
                 return
+            # Requisições do navegador usam cabeçalho próprio para impedir envio entre origens.
+            if rota != '/api/pedidos' and self.headers.get('X-Portal') != 'tutora':
+                self.responder(403, {'erro': 'Abra o portal pelo endereço do servidor e tente novamente.'})
+                return
+            self.connection.settimeout(10)
             try:
                 tamanho = int(self.headers.get('Content-Length', '0'))
                 if tamanho < 1 or tamanho > 4096:
@@ -113,7 +142,15 @@ def criar_servidor(endereco, pasta):
                 dados = json.loads(self.rfile.read(tamanho))
                 if not isinstance(dados, dict):
                     raise ValueError()
-                rota = urlsplit(self.path).path
+                if rota == '/api/login':
+                    token, perfil = autenticar(db, dados.get('instituicao'), dados.get('usuario'), dados.get('senha'), self.client_address[0])
+                    encerrar_sessao(db, self.token_sessao())
+                    self.responder(200, perfil, cookie=self.cookie(token))
+                    return
+                if rota == '/api/logout':
+                    encerrar_sessao(db, self.token_sessao())
+                    self.responder(200, {'ok': True}, cookie=self.cookie(apagar=True))
+                    return
                 limpar_expirados(db)
                 with closing(sqlite3.connect(db, timeout=10)) as con, con:
                     if rota == '/api/pedidos':
@@ -145,6 +182,8 @@ def criar_servidor(endereco, pasta):
                         self.responder(404, {'erro': 'Rota não encontrada.'})
                         return
                 self.responder(200, {'ok': True})
+            except ErroAcesso as erro:
+                self.responder(erro.status, {'erro': str(erro)})
             except (ValueError, UnicodeError):
                 self.responder(400, {'erro': 'Pedido inválido.'})
 
@@ -161,10 +200,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--porta', type=int, default=8765)
     parser.add_argument('--dados', type=Path, default=ROOT / 'data')
+    parser.add_argument('--demo', action='store_true', help='Cria o perfil ADM Desenvolvedor de testes se ainda não houver uma conta.')
     args = parser.parse_args()
-    servidor, segredo = criar_servidor(('0.0.0.0', args.porta), args.dados)
+    servidor, segredo = criar_servidor(('0.0.0.0', args.porta), args.dados, modo_demo=args.demo)
     print(f'Painel neste computador: http://localhost:{args.porta}', flush=True)
-    print(f'Código de acesso: {segredo}', flush=True)
+    print(f'Credencial dos comunicadores: {segredo}', flush=True)
+    if args.demo:
+        print('Modo de demonstração: ADM Desenvolvedor. Instituição 51995537839, usuário admdev.', flush=True)
+    else:
+        print('Acesso ao portal: instituição, usuário e senha configurados localmente.', flush=True)
     try:
         for ip in sorted({x[4][0] for x in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)}):
             if not ip.startswith('127.'):

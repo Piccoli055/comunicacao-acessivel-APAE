@@ -1,97 +1,121 @@
 # Comunicador acessível MVP
 
-Projeto local para Raspberry Pi 3 B+ com tela de 480 × 320 e portal da tutora no navegador do celular. A interface do Raspberry e o uso com pessoas da APAE ainda precisam de validação no aparelho e com os usuários.
+Projeto local para Raspberry Pi 3 B+ com tela de 480 × 320 e portal no navegador do celular. A interface do Raspberry e o uso com pessoas da APAE ainda precisam de validação no aparelho e com os usuários.
 
-## Começar pelo portal no VS Code
+## Iniciar no VS Code com o perfil de testes
 
-Abra o terminal na pasta `comunicador-mvp` e execute:
+No terminal da pasta `comunicador-mvp`, execute:
 
 ```powershell
-python servidor.py
+python servidor.py --demo
 ```
 
-Se o Windows reconhecer apenas o iniciador do Python, use `py servidor.py`.
+Se o Windows reconhecer apenas o iniciador, use `py servidor.py --demo`.
 
-Abra `http://127.0.0.1:8765` no computador e informe o código que apareceu no terminal. O código é criado na primeira execução e fica em `data/acesso.txt`; ele não é necessariamente o mesmo do primeiro teste feito no chat. Mantenha o terminal do servidor aberto.
+Abra `http://127.0.0.1:8765` e use:
 
-Para experimentar vários comunicadores sem o Raspberry:
+| Campo | Valor de testes |
+| --- | --- |
+| Instituição | `51995537839` |
+| Usuário | `admdev` |
+| Senha | `123456` |
+| Perfil | ADM Desenvolvedor |
+
+O código de 11 dígitos é um identificador de testes, não um CNPJ validado. O perfil tem acesso a todas as funções atualmente disponíveis no MVP: pedidos de todos os comunicadores, filtros, recebimento, atendimento e histórico. Os cadastros de alunos e suas preferências ainda precisam ser implementados.
+
+`--demo` cria essa conta somente se ainda não existir uma conta configurada. Não substitui uma conta existente. A conta criada permanece no banco local nas próximas execuções. As credenciais acima são públicas e destinadas apenas à demonstração com dados fictícios.
+
+O IP serve para encontrar o servidor. Mudar o IP não muda instituição, usuário ou senha. A sessão expira em oito horas; ao atualizar o navegador, o portal recupera uma sessão ainda válida. Ao sair, a sessão é revogada no servidor.
+
+## Pedidos fictícios
+
+Com o servidor ligado, em outro terminal:
 
 ```powershell
 python demonstracao.py
 ```
 
-Isso cria cinco pedidos fictícios de três comunicadores. O comando só adiciona pedidos quando executado; repeti-lo cria novos pedidos intencionais. Não execute se não quiser misturar exemplos com sua demonstração.
+Isso envia cinco pedidos fictícios de três comunicadores. Cada execução cria pedidos novos. A demonstração usa a credencial dos comunicadores; ela não precisa da senha do portal.
 
-## Fluxo da tutora
+## Configurar ou redefinir uma conta local
 
-1. Um pedido chega como **Novo**. Pedidos de ajuda têm destaque escrito e visual.
-2. **Confirmar recebimento** muda o pedido para **Recebido**. Isso significa que a tutora viu a solicitação.
-3. **Marcar como atendido** conclui o pedido e o envia para **Histórico**.
+Para substituir a conta de demonstração por uma conta configurada pela equipe:
 
-Os pendentes aparecem do mais antigo para o mais recente; o histórico de atendidos aparece do mais recente para o mais antigo. Os contadores são de todos os comunicadores; os filtros afetam a lista. Filtre por comunicador, situação ou texto da mensagem.
+```powershell
+python configurar_acesso.py
+```
 
-O botão **Ativar aviso sonoro** precisa ser tocado pela tutora. Ele emite um som de teste e habilita avisos para novos pedidos. O navegador precisa permanecer aberto e o volume do celular deve estar audível. Ao sair ou recarregar a página, é necessário entrar e ativar o som novamente.
+Informe o CNPJ de 14 números, usuário e uma senha de pelo menos 10 caracteres. A senha é digitada de forma oculta e salva somente como derivação PBKDF2 com sal aleatório. O comando substitui a única conta existente e revoga todas as sessões. Não altera os pedidos.
 
-O portal se atualiza a cada dois segundos. Se uma ação na lista estiver com foco, a atualização fica aguardando o botão **Atualizar pedidos**, evitando interromper a interação. A conexão é retomada automaticamente após falhas. Uma ação só aparece como concluída depois da confirmação do servidor.
+Não há cadastro público nem redefinição por e-mail. A equipe com acesso ao terminal pode usar esse comando para redefinir a conta. Após cinco falhas de login pelo mesmo endereço, novas tentativas ficam bloqueadas por cinco minutos.
 
-## Exclusão automática após 48 horas
+## Fluxo de atendimento
 
-Cada pedido é excluído ao completar 48 horas desde seu **recebimento no servidor**, independentemente de estar novo, recebido ou atendido. Não é uma limpeza geral em horário fixo. A regra foi definida para este MVP.
+1. O pedido chega como **Novo**; ajuda recebe destaque escrito e visual.
+2. **Confirmar recebimento** muda para **Recebido**, indicando que a mensagem foi vista.
+3. **Marcar como atendido** conclui e o retira da lista de pendentes. Ele permanece consultável no histórico.
 
-A limpeza ocorre ao iniciar o servidor, consultar ou alterar pedidos e, sem consultas, a cada minuto enquanto o servidor estiver ligado. Com o servidor desligado, a limpeza é feita na próxima inicialização. Reenvios do mesmo identificador dentro da janela não duplicam o pedido. O relógio do servidor deve estar correto; depois da exclusão, o registro não é recuperável pela aplicação.
+Os pendentes aparecem do mais antigo para o mais recente. O histórico lista os chamados em qualquer situação, preservando os pendentes e os atendidos há menos de 48 horas, do mais recente para o mais antigo. Nessa aba há apenas a lista de consulta, com filtros de comunicador, situação (Novo, Recebido ou Atendido) e busca; as ações de atendimento ficam em Pedidos pendentes. Os contadores incluem todos os comunicadores; os filtros afetam a lista.
 
-## Abrir no celular
+Ative o aviso sonoro pelo botão do portal. O navegador precisa ficar aberto e o volume deve estar audível. Ative o som novamente após recarregar ou entrar em outra sessão.
 
-O terminal mostra possíveis endereços da rede, por exemplo `http://192.168.1.10:8765`. No celular, abra o endereço da rede Wi-Fi do computador/Raspberry e informe o mesmo código. `localhost` e `127.0.0.1` no celular apontam para o próprio celular, não para o Raspberry.
+O portal atualiza a cada dois segundos e reconecta após uma falha. Se houver foco em uma ação da lista, aparece **Atualizar pedidos**, sem interromper a interação. Uma ação só aparece como concluída depois da confirmação do servidor.
 
-Os aparelhos precisam estar na mesma rede e a rede deve permitir comunicação entre dispositivos. Se o firewall pedir permissão, permita somente para a rede privada de teste. Não é necessário expor a porta no roteador.
+## Exclusão em 48 horas
 
-## Vários Raspberry Pi
+Cada pedido atendido é excluído 48 horas após o atendimento, registrado no campo `atualizado`. Pedidos novos e recebidos permanecem até serem atendidos, independentemente da idade. Repetir a confirmação ou o atendimento não reinicia a contagem. A limpeza ocorre ao iniciar o servidor, consultar ou alterar pedidos e a cada minuto enquanto estiver ligado. Com o servidor desligado, ocorre na próxima inicialização. Não é uma limpeza geral em horário fixo e não apaga a conta de acesso.
 
-Escolha **um servidor central** para todos os comunicadores. Não execute um servidor separado por aparelho se quiser acompanhar todos no mesmo portal.
+## Acesso pelo celular ou outro computador
 
-No Raspberry que hospeda o servidor, em outro terminal:
+Mantenha os aparelhos na mesma rede Wi-Fi. O terminal mostra possíveis endereços, como `http://192.168.1.10:8765`. Abra o endereço da rede do servidor e use a mesma instituição, usuário e senha. Não use `127.0.0.1` no celular para acessar o computador.
+
+Uma nova cópia do projeto em outro PC tem um banco novo porque `data/` não vai para o GitHub. Execute `python servidor.py --demo` para criar o mesmo perfil de testes nessa nova instalação. Não precisa rodar um servidor em cada PC para acessar o portal existente.
+
+Este MVP usa HTTP na rede local. Não exponha a porta no roteador. Ele não inclui acesso público pela internet, APK nem notificações em segundo plano.
+
+## Comunicadores
+
+Escolha um único servidor para reunir todos os pedidos. A credencial de envio aparece no terminal como **Credencial dos comunicadores** e permanece em `data/acesso.txt`. Ela é separada do login e só permite enviar pedidos, sem consultar dados ou atender solicitações.
+
+No Raspberry que também hospeda o servidor:
 
 ```bash
 python3 comunicador.py --tela-cheia --dispositivo "Comunicador 01"
 ```
 
-Nos demais aparelhos:
+Nos outros:
 
 ```bash
-python3 comunicador.py --tela-cheia --dispositivo "Comunicador 02" --servidor http://IP_DO_SERVIDOR:8765 --codigo CODIGO_DO_SERVIDOR
+python3 comunicador.py --tela-cheia --dispositivo "Comunicador 02" --servidor http://IP_DO_SERVIDOR:8765 --codigo CREDENCIAL_DO_COMUNICADOR
 ```
 
-Substitua os valores em maiúsculas. Use um nome diferente, com até 80 caracteres, para cada comunicador. As identificações aparecem no filtro quando os primeiros pedidos chegam; não há cadastro separado de alunos. Use identificações fictícias na apresentação.
+Use uma identificação diferente por aparelho, com até 80 caracteres. O Raspberry depende de Tkinter e `espeak-ng`/`espeak`; o servidor não exige bibliotecas Python externas. O driver da tela física é configurado separadamente.
 
-A interface do Raspberry depende de Tkinter (`python3-tk`) e o áudio no Linux depende de `espeak-ng` ou `espeak`. O portal e o servidor não precisam de bibliotecas Python externas. A instalação e calibração da tela SPI são etapas separadas.
+## Arquivos principais
 
-## Arquivos
-
-- `servidor.py`: API local, armazenamento e exclusão em 48 horas.
-- `tutora.html`: estrutura das telas do portal.
-- `portal.css`: aparência e adaptação ao celular.
-- `portal.js`: filtros, atualização, ações e avisos sonoros.
-- `comunicador.py`: interface touch do aluno.
-- `transporte.py`: fila persistente e tentativas de envio.
-- `demonstracao.py`: envio manual de exemplos fictícios.
-- `tests/test_fluxo.py`: testes das regras do servidor e da fila.
-- `CHECKLIST_PORTAL.md`: o que está implementado e o que falta validar.
+- `servidor.py`: API, pedidos, retenção e sessões HTTP.
+- `acesso.py`: senha derivada, autenticação, sessão e bloqueio de tentativas.
+- `configurar_acesso.py`: configuração e redefinição local da conta.
+- `tutora.html`, `portal.css` e `portal.js`: telas e funcionamento do portal.
+- `comunicador.py` e `transporte.py`: interface do aluno e fila de envio.
+- `demonstracao.py`: exemplos fictícios.
+- `tests/test_fluxo.py`: testes de pedidos e autenticação.
+- `CHECKLIST_PORTAL.md`: desenvolvimento e validações pendentes.
 
 ## Problemas comuns
 
-- **Failed to fetch / não foi possível conectar:** abra o endereço do servidor no navegador. Não abra `tutora.html` diretamente nem pelo Live Server do VS Code. Confira se o servidor está rodando.
-- **Endereço já em uso:** outro servidor está usando a porta. Encerre a execução anterior no terminal com Ctrl+C ou execute `python servidor.py --porta 8766` e acesse essa porta. Se mudar a porta, ajuste também `--servidor` do comunicador.
-- **Página antiga:** confirme que o terminal está na pasta `comunicador-mvp`, reinicie o servidor dessa pasta e atualize o navegador.
-- **Código incorreto:** use o código do servidor que está rodando, em `data/acesso.txt`. O código do ambiente isolado de testes não é o do projeto.
-- **Sem som:** toque em ativar aviso, confira volume e mantenha a aba aberta. O portal não envia notificações quando fechado.
+- **Não conecta:** confirme se o servidor está ligado e abra o endereço dele, não o arquivo HTML ou o Live Server.
+- **Credenciais incorretas:** use a conta desta instalação. `--demo` não troca uma conta já configurada; para redefinir, use `configurar_acesso.py`.
+- **Endereço em uso:** encerre a execução anterior ou use `python servidor.py --demo --porta 8766`, acessando a nova porta.
+- **Página antiga:** execute o servidor na pasta `comunicador-mvp` e atualize o navegador após reiniciar.
+- **Sem som:** ative o aviso, confira o volume e mantenha a página aberta.
 
-## Validação
+## Testes
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-Dez testes cobrem acesso, transições de estado, exclusão em 48 horas, migração do banco anterior, persistência, vários comunicadores e reenvio sem duplicação. Foram feitos testes no navegador com largura de celular, filtros, busca, login inválido, recebimento, atendimento, histórico, saída, interrupção e reconexão ao servidor e preservação do foco.
+A suíte verifica login, rejeição de credenciais, expiração e revogação de sessão, limite de tentativas, credenciais separadas dos comunicadores, estados de pedidos, retenção de 48 horas, persistência, migração e reenvio sem duplicação.
 
-Ainda são necessários testes no celular real, na rede da apresentação, com áudio audível, leitor de tela e Raspberry físico. Este MVP usa um código compartilhado e HTTP na rede local; não inclui acesso pela internet, contas individuais, APK ou notificações em segundo plano.
+Ainda faltam validação visual do novo formulário nesta sessão, celular real, áudio, leitor de tela, Raspberry físico e ensaio na rede da apresentação. O formulário de login não substitui os cadastros de alunos, adaptações e vínculos, que são próximas etapas.

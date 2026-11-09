@@ -5,13 +5,17 @@
 - [x] Vários comunicadores identificados individualmente.
 - [x] Estados Novo, Recebido e Atendido.
 - [x] Destaque para pedidos de ajuda.
-- [x] Exclusão de cada pedido 48 horas após o recebimento, inclusive pendentes.
+- [x] Exclusão de cada pedido atendido 48 horas após o atendimento; pendentes permanecem.
 - [x] Portal pelo navegador na mesma rede Wi-Fi.
 
 ## Implementado e verificado no ambiente local
 
-- [x] Entrada com código, mostrar/ocultar e mensagem de erro.
-- [x] Lista de pendentes e histórico de atendidos.
+- [x] Entrada com instituição, usuário e senha; mostrar/ocultar e mensagens de erro.
+- [x] Perfil ADM Desenvolvedor de testes, criado com `servidor.py --demo`.
+- [x] Sessão com validade de oito horas, saída revogável e limite de tentativas.
+- [x] Credencial dos comunicadores separada do acesso ao portal.
+- [x] Lista de pendentes e histórico com pendentes e chamados atendidos há menos de 48 horas.
+- [x] Histórico somente para consulta, sem cartões de resumo ou ações, com filtros por comunicador e situação e busca.
 - [x] Identificação, mensagem, horário, situação e ações.
 - [x] Contadores por situação.
 - [x] Filtros por comunicador e situação; busca textual.
@@ -25,14 +29,22 @@
 - [x] Ações confirmadas pelo servidor antes de mudar a situação na tela.
 - [x] Persistência, prevenção de duplicação e preservação de confirmações antigas.
 - [x] Exclusão em 48 horas verificada com relógio controlado nos testes.
-- [x] Proteção das rotas de dados e ações por código.
-- [x] Saída remove os pedidos e o código da sessão em memória.
+- [x] Proteção das consultas e ações por sessão; credencial do comunicador permite apenas enviar pedidos.
+- [x] Saída revoga a sessão no servidor e remove dados da tela.
 - [x] Instruções de execução, acesso no celular e solução de problemas.
 - [x] Gerador manual de pedidos fictícios para o ensaio.
-- [x] Dez testes automáticos aprovados.
+- [x] Testes automáticos de autenticação e pedidos implementados.
+
+## Próximos desenvolvimentos
+
+- [ ] Cadastro, edição e desativação de alunos.
+- [ ] Preferências de acessibilidade e mensagens por aluno.
+- [ ] Vínculo entre aluno e comunicador.
+- [ ] Identificação do aluno nos pedidos.
 
 ## Validação que depende dos aparelhos e da equipe
 
+- [ ] Validar visualmente o novo formulário de instituição, usuário e senha.
 - [ ] Testar no celular real da tutora, incluindo toque, zoom e navegador escolhido.
 - [ ] Confirmar som audível e comportamento com economia de energia/bloqueio de tela.
 - [ ] Avaliar a navegação com leitor de tela no celular real.

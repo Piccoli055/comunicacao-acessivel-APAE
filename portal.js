@@ -1,7 +1,7 @@
 'use strict';
 
 const $ = id => document.getElementById(id);
-let codigo = '', sessao = 0, pedidos = [], vistos = new Set(), primeiraCarga = true;
+let conectado = false, sessao = 0, pedidos = [], vistos = new Set(), primeiraCarga = true;
 let visao = 'pendentes', assinatura = '', consulta = null, somAtivo = false, audio = null;
 let toastTimer = null;
 const requisicoes = new Set();
@@ -11,14 +11,15 @@ class FalhaAPI extends Error {
   constructor(mensagem, status = 0) { super(mensagem); this.status = status; }
 }
 
-async function api(rota, dados, chave = codigo) {
+async function api(rota, dados) {
   const controller = new AbortController();
   requisicoes.add(controller);
   const timeout = setTimeout(() => controller.abort(), 6000);
   try {
     const resposta = await fetch(rota, {
       method: dados ? 'POST' : 'GET',
-      headers: {'X-Codigo': chave, ...(dados ? {'Content-Type': 'application/json'} : {})},
+      credentials: 'same-origin',
+      headers: {'X-Portal': 'tutora', ...(dados ? {'Content-Type': 'application/json'} : {})},
       ...(dados ? {body: JSON.stringify(dados)} : {}), signal: controller.signal,
       cache: 'no-store',
     });
@@ -73,16 +74,35 @@ function resumo() {
   }
 }
 
+function registroHistorico(pedido) {
+  const registro = elemento('article', 'registro-historico');
+  const mensagem = elemento('div', 'registro-mensagem');
+  mensagem.append(elemento('h2', '', pedido.frase));
+  if (pedido.prioridade === 'ajuda') mensagem.append(elemento('span', 'selo ajuda', 'Pedido de ajuda'));
+  const comunicador = elemento('div', 'registro-comunicador');
+  comunicador.append(elemento('small', 'rotulo-registro', 'Comunicador'), elemento('span', '', pedido.dispositivo));
+  const situacao = elemento('div', 'registro-situacao');
+  situacao.append(elemento('small', 'rotulo-registro', 'Situação'), elemento('span', 'selo ' + pedido.estado, nomes[pedido.estado]));
+  const recebimento = elemento('div', 'registro-recebimento');
+  const horario = elemento('time', '', new Date(pedido.recebido).toLocaleString('pt-BR', {
+    day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit',
+  }));
+  horario.dateTime = pedido.recebido;
+  recebimento.append(elemento('small', 'rotulo-registro', 'Recebimento'), horario);
+  registro.append(mensagem, comunicador, situacao, recebimento);
+  return registro;
+}
+
 function renderizar(forcar = false) {
   resumo();
   const busca = $('busca').value.trim().toLocaleLowerCase('pt-BR');
   const comunicador = $('dispositivo').value, situacao = $('filtro-estado').value;
-  let lista = pedidos.filter(p => (visao === 'historico' ? p.estado === 'atendido' : p.estado !== 'atendido')
+  let lista = pedidos.filter(p => (visao === 'historico' || p.estado !== 'atendido')
     && (!comunicador || p.dispositivo === comunicador)
     && (!situacao || p.estado === situacao)
     && (!busca || (p.frase + ' ' + p.dispositivo).toLocaleLowerCase('pt-BR').includes(busca)));
   if (visao === 'historico') lista = lista.slice().reverse();
-  const novaAssinatura = JSON.stringify(lista);
+  const novaAssinatura = JSON.stringify([visao, lista]);
   if (novaAssinatura === assinatura) return;
   if (!forcar && $('pedidos').contains(document.activeElement)) {
     $('texto-novos').textContent = 'Há atualizações na lista. Atualize quando terminar sua ação.';
@@ -93,6 +113,10 @@ function renderizar(forcar = false) {
   $('aviso-novos').hidden = true;
   const fragmento = document.createDocumentFragment();
   for (const pedido of lista) {
+    if (visao === 'historico') {
+      fragmento.append(registroHistorico(pedido));
+      continue;
+    }
     const card = elemento('article', 'pedido' + (pedido.prioridade === 'ajuda' ? ' ajuda' : ''));
     const simbolo = elemento('div', 'pedido-icone', pedido.prioridade === 'ajuda' ? '!' : '↗');
     simbolo.setAttribute('aria-hidden', 'true');
@@ -123,12 +147,14 @@ function renderizar(forcar = false) {
   }
   $('pedidos').replaceChildren(fragmento);
   $('pedidos').setAttribute('aria-busy', 'false');
-  $('quantidade-lista').textContent = lista.length + (lista.length === 1 ? ' pedido' : ' pedidos');
+  $('quantidade-lista').textContent = lista.length + (visao === 'historico'
+    ? (lista.length === 1 ? ' chamado' : ' chamados')
+    : (lista.length === 1 ? ' pedido' : ' pedidos'));
   $('vazio').hidden = lista.length !== 0;
   if (!lista.length) {
     const filtrado = Boolean(busca || comunicador || situacao);
-    $('vazio-titulo').textContent = filtrado ? 'Nenhum pedido encontrado' : visao === 'historico' ? 'O histórico começa com o cuidado' : 'Tudo tranquilo por aqui';
-    $('vazio-texto').textContent = filtrado ? 'Experimente outro comunicador, situação ou termo de busca.' : visao === 'historico' ? 'Os pedidos atendidos nas últimas 48 horas aparecerão aqui.' : 'Os novos pedidos aparecerão neste espaço.';
+    $('vazio-titulo').textContent = filtrado ? 'Nenhum pedido encontrado' : visao === 'historico' ? 'Nenhum chamado no histórico' : 'Tudo tranquilo por aqui';
+    $('vazio-texto').textContent = filtrado ? 'Experimente outro comunicador, situação ou termo de busca.' : visao === 'historico' ? 'Os chamados aparecerão aqui em qualquer situação. Os atendidos saem 48 horas após o atendimento.' : 'Os novos pedidos aparecerão neste espaço.';
   }
 }
 
@@ -146,19 +172,19 @@ function aplicarPedidos(lista) {
 }
 
 async function atualizar() {
-  if (!codigo) return;
+  if (!conectado) return;
   if (consulta) return consulta;
   const atual = sessao;
   consulta = (async () => {
     try {
       const lista = await api('/api/pedidos');
-      if (atual === sessao && codigo) aplicarPedidos(lista);
+      if (atual === sessao && conectado) aplicarPedidos(lista);
     } catch (erro) {
-      if (atual !== sessao || !codigo) return;
+      if (atual !== sessao || !conectado) return;
       if (erro.status === 401) {
-        sair(false);
-        $('erro').textContent = 'O código de acesso mudou. Entre novamente.';
-        $('codigo').focus();
+        limparSessao(false);
+        $('erro').textContent = 'Sua sessão terminou. Entre novamente.';
+        $('senha').focus();
       } else conexao(false, erro.message);
     }
   })();
@@ -174,20 +200,20 @@ async function alterarPedido(pedido, botao) {
   let salvo = false;
   try {
     await api(pedido.estado === 'novo' ? '/api/confirmar' : '/api/atender', {id:pedido.id});
-    if (atual !== sessao || !codigo) return;
+    if (atual !== sessao || !conectado) return;
     salvo = true;
     // Esperar uma consulta anterior antes de buscar o estado confirmado.
     if (consulta) await consulta;
-    if (atual !== sessao || !codigo) return;
+    if (atual !== sessao || !conectado) return;
     const lista = await api('/api/pedidos');
-    if (atual !== sessao || !codigo) return;
+    if (atual !== sessao || !conectado) return;
     aplicarPedidos(lista);
     renderizar(true);
     avisar(pedido.estado === 'novo' ? 'Recebimento confirmado.' : 'Pedido marcado como atendido.');
     $('quantidade-lista').setAttribute('tabindex', '-1');
     $('quantidade-lista').focus({preventScroll:true});
   } catch (erro) {
-    if (atual === sessao && codigo) {
+    if (atual === sessao && conectado) {
       avisar(salvo ? 'Ação salva. Não foi possível atualizar a lista agora.' : erro.message);
       if (erro.status === 404) { assinatura = ''; await atualizar(); renderizar(true); }
     }
@@ -223,24 +249,25 @@ function atualizarSom() {
   $('som').setAttribute('aria-pressed', String(somAtivo));
 }
 
-function sair(focar = true) {
-  sessao++; codigo = ''; consulta = null;
+function limparSessao(focar = true) {
+  sessao++; conectado = false; consulta = null;
   requisicoes.forEach(r => r.abort()); requisicoes.clear();
   pedidos = []; vistos.clear(); primeiraCarga = true; assinatura = '';
   somAtivo = false; atualizarSom();
   if (audio) { audio.close().catch(() => {}); audio = null; }
   clearTimeout(toastTimer);
-  $('codigo').value = ''; $('codigo').type = 'password';
-  $('mostrar-codigo').textContent = 'Mostrar';
-  $('mostrar-codigo').setAttribute('aria-pressed', 'false');
-  $('mostrar-codigo').setAttribute('aria-label', 'Mostrar código');
+  $('senha').value = ''; $('senha').type = 'password';
+  $('mostrar-senha').textContent = 'Mostrar';
+  $('mostrar-senha').setAttribute('aria-pressed', 'false');
+  $('mostrar-senha').setAttribute('aria-label', 'Mostrar senha');
+  $('perfil-usuario').textContent = '';
   $('portal').hidden = true; $('entrada').hidden = false; $('pular').hidden = true;
   $('pedidos').replaceChildren(); $('toast').hidden = true;
   $('aviso-novos').hidden = true; $('anuncio').textContent = '';
   $('conectar').disabled = false; $('conectar').textContent = 'Entrar no portal →';
   $('dispositivo').replaceChildren(new Option('Todos os comunicadores', ''));
   $('busca').value = ''; mudarVisao('pendentes', false);
-  if (focar) $('codigo').focus();
+  if (focar) $('instituicao').focus();
 }
 
 function mudarVisao(nova, desenhar = true) {
@@ -250,45 +277,70 @@ function mudarVisao(nova, desenhar = true) {
     if (id === nova) $('nav-' + id).setAttribute('aria-current','page');
     else $('nav-' + id).removeAttribute('aria-current');
   }
-  $('titulo-pagina').textContent = nova === 'pendentes' ? 'Pedidos pendentes' : 'Histórico de atendimentos';
-  $('descricao-pagina').textContent = nova === 'pendentes' ? 'Acompanhe o que precisa da sua atenção.' : 'Cada atendimento é uma conexão que aconteceu.';
+  $('titulo-pagina').textContent = nova === 'pendentes' ? 'Pedidos pendentes' : 'Histórico de chamados';
+  $('resumo-pedidos').hidden = nova === 'historico';
+  $('pedidos').classList.toggle('historico', nova === 'historico');
+  $('cabecalho-historico').hidden = nova !== 'historico';
+  $('descricao-pagina').textContent = nova === 'pendentes' ? 'Acompanhe o que precisa da sua atenção.' : 'Consulte e filtre os chamados. Os atendidos permanecem por 48 horas após o atendimento.';
   $('ordem-lista').textContent = nova === 'pendentes' ? 'Mais antigos primeiro' : 'Pedidos mais recentes primeiro';
-  $('filtro-estado').replaceChildren(...(nova === 'pendentes'
-    ? [['','Todas as situações'],['novo','Novos'],['recebido','Recebidos']]
-    : [['','Atendidos']]).map(([valor, texto]) => new Option(texto,valor)));
+  const situacoes = [['','Todas as situações'],['novo','Novos'],['recebido','Recebidos']];
+  if (nova === 'historico') situacoes.push(['atendido','Atendidos']);
+  $('filtro-estado').replaceChildren(...situacoes.map(([valor, texto]) => new Option(texto,valor)));
+  $('filtro-estado').value = '';
   if (desenhar) renderizar(true);
 }
 
+function abrirPortal(perfil, lista) {
+  conectado = true;
+  $('senha').value = '';
+  $('entrada').hidden = true; $('portal').hidden = false; $('pular').hidden = false;
+  $('perfil-usuario').textContent = perfil.usuario + (perfil.perfil === 'admdev' ? ' · ADM Desenvolvedor' : ' · Tutora');
+  $('pedidos').setAttribute('aria-busy', 'true');
+  aplicarPedidos(lista);
+  $('conteudo').focus();
+}
 $('acesso').addEventListener('submit', async evento => {
   evento.preventDefault();
   if (location.protocol === 'file:') { $('erro').textContent = 'Abra o portal pelo endereço do servidor, por exemplo http://127.0.0.1:8765, em vez de abrir este arquivo.'; return; }
-  const chave = $('codigo').value.trim();
-  // O código gerado usa apenas caracteres ASCII; evita erros de cabeçalho.
-  if (!/^[\x21-\x7e]{1,120}$/.test(chave)) { $('erro').textContent = 'Confira o código de acesso fornecido pela equipe.'; return; }
+  const credenciais = {instituicao: $('instituicao').value.trim(), usuario: $('usuario').value.trim(), senha: $('senha').value};
   const atual = ++sessao;
-  $('erro').textContent = ''; $('conectar').disabled = true; $('conectar').textContent = 'Conectando…';
+  $('erro').textContent = ''; $('conectar').disabled = true; $('conectar').textContent = 'Entrando…';
   try {
-    const lista = await api('/api/pedidos', null, chave);
+    const perfil = await api('/api/login', credenciais);
     if (atual !== sessao) return;
-    codigo = chave; $('codigo').value = '';
-    $('entrada').hidden = true; $('portal').hidden = false; $('pular').hidden = false;
-    $('pedidos').setAttribute('aria-busy','true');
-    aplicarPedidos(lista);
-    $('conteudo').focus();
+    const lista = await api('/api/pedidos');
+    if (atual !== sessao) return;
+    abrirPortal(perfil, lista);
   } catch (erro) {
-    if (atual === sessao) { codigo = ''; $('erro').textContent = erro.message; }
+    if (atual === sessao) { conectado = false; $('erro').textContent = erro.message; }
   } finally {
+    credenciais.senha = ''; $('senha').value = '';
     if (atual === sessao) { $('conectar').disabled = false; $('conectar').textContent = 'Entrar no portal →'; }
   }
 });
-$('mostrar-codigo').addEventListener('click', () => {
-  const mostrar = $('codigo').type === 'password';
-  $('codigo').type = mostrar ? 'text' : 'password';
-  $('mostrar-codigo').textContent = mostrar ? 'Ocultar' : 'Mostrar';
-  $('mostrar-codigo').setAttribute('aria-label', mostrar ? 'Ocultar código' : 'Mostrar código');
-  $('mostrar-codigo').setAttribute('aria-pressed', String(mostrar));
+$('mostrar-senha').addEventListener('click', () => {
+  const mostrar = $('senha').type === 'password';
+  $('senha').type = mostrar ? 'text' : 'password';
+  $('mostrar-senha').textContent = mostrar ? 'Ocultar' : 'Mostrar';
+  $('mostrar-senha').setAttribute('aria-label', mostrar ? 'Ocultar senha' : 'Mostrar senha');
+  $('mostrar-senha').setAttribute('aria-pressed', String(mostrar));
 });
-$('sair').addEventListener('click', () => sair());
+$('sair').addEventListener('click', async () => {
+  $('sair').disabled = true;
+  try { await api('/api/logout', {}); limparSessao(); }
+  catch (erro) { avisar('Não foi possível encerrar a sessão no servidor. Confira a conexão e tente sair novamente.'); }
+  finally { $('sair').disabled = false; }
+});
+async function restaurarSessao() {
+  const atual = sessao;
+  if (location.protocol === 'file:') return;
+  try {
+    const perfil = await api('/api/sessao');
+    const lista = await api('/api/pedidos');
+    if (atual === sessao && !conectado) abrirPortal(perfil, lista);
+  } catch (_) { /* Sem sessão: manter a tela de entrada. */ }
+}
+restaurarSessao();
 $('nav-pendentes').addEventListener('click', () => mudarVisao('pendentes'));
 $('nav-historico').addEventListener('click', () => mudarVisao('historico'));
 for (const id of ['dispositivo','filtro-estado']) $(id).addEventListener('change', () => renderizar(true));
@@ -302,12 +354,12 @@ $('som').addEventListener('click', async () => {
     if (!Contexto) throw Error();
     if (!audio) audio = new Contexto();
     await audio.resume();
-    if (atual !== sessao || !codigo) return;
+    if (atual !== sessao || !conectado) return;
     somAtivo = true; atualizarSom(); await tocar();
     avisar('Som ativado. Mantenha o portal aberto para receber os avisos.');
   } catch (_) { avisar('Este navegador não conseguiu ativar o som. Os avisos visuais continuam ativos.'); }
 });
 setInterval(atualizar, 2000);
 window.addEventListener('online', atualizar);
-window.addEventListener('offline', () => { if (codigo) conexao(false,'Confira a conexão Wi-Fi.'); });
+window.addEventListener('offline', () => { if (conectado) conexao(false,'Confira a conexão Wi-Fi.'); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) atualizar(); });
