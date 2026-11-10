@@ -94,6 +94,168 @@ class Fluxo(unittest.TestCase):
             self.navegador.open(req)
         self.assertEqual(erro.exception.code,404)
 
+    def test_api_vinculo_exige_sessao_e_cabecalho(self):
+        aluno = self.api('/api/alunos',{'nome':'Aluno do vínculo','autorizado':True})
+        dados = {'dispositivo':'Comunicador 01','aluno_id':aluno['id'],'versao':0}
+        self.assertEqual(self.api('/api/comunicadores'),[])
+        for codigo in ('invalido',self.codigo):
+            for rota, corpo in (('/api/comunicadores',None),('/api/comunicadores/vincular',dados)):
+                with self.assertRaises(HTTPError) as erro:
+                    self.api(rota,corpo,codigo=codigo)
+                self.assertEqual(erro.exception.code,401)
+        req = Request(self.url+'/api/comunicadores/vincular',data=json.dumps(dados).encode(),headers={'Content-Type':'application/json'})
+        with self.assertRaises(HTTPError) as erro:
+            self.navegador.open(req)
+        self.assertEqual(erro.exception.code,403)
+        self.api('/api/comunicadores/vincular',dados)
+        self.assertEqual(self.api('/api/comunicadores')[0]['aluno_id'],aluno['id'])
+        self.api('/api/pedidos',{'id':'sem-mudar','frase':'Pedido','dispositivo':'Comunicador 01'},codigo=self.codigo)
+        self.assertEqual(self.api('/api/pedidos')[0]['aluno_id'],aluno['id'])
+        self.assertEqual(self.api('/api/pedidos')[0]['aluno_nome'],aluno['nome'])
+
+    def test_fila_envia_e_servidor_registra_aluno_do_comunicador(self):
+        aluno = self.api('/api/alunos', {'nome':'Aluno da sala','autorizado':True})
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':aluno['id'],'versao':0})
+        fila = Fila(self.pasta/'fila-vinculada.sqlite3')
+        fila.adicionar('Quero água.','Sala 1')
+        fila.enviar(self.url,self.codigo)
+        self.assertEqual(fila.pendentes(),[])
+        pedido = self.api('/api/pedidos')[0]
+        self.assertEqual((pedido['aluno_id'],pedido['aluno_nome']),(aluno['id'],aluno['nome']))
+        self.assertEqual(pedido['estado'],'novo')
+        preparar(self.pasta)
+        self.assertEqual(self.api('/api/pedidos')[0],pedido)
+
+    def test_pedido_sem_vinculo_ou_aluno_inativo_continua_chegando(self):
+        aluno = self.api('/api/alunos',{'nome':'Aluno inativo','autorizado':True})
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':aluno['id'],'versao':0})
+        self.api('/api/alunos/situacao',{'id':aluno['id'],'versao':1,'ativo':False,'confirmado':True})
+        for identificador, dispositivo in [('inativo','Sala 1'),('sem-vinculo','Outro aparelho')]:
+            self.api('/api/pedidos',{'id':identificador,'dispositivo':dispositivo,'frase':'Ajuda','aluno_id':aluno['id'],'aluno_nome':'Nome forjado'},codigo=self.codigo)
+        lista = self.api('/api/pedidos')
+        self.assertEqual(len(lista),2)
+        self.assertTrue(all(p['aluno_id'] is None and p['aluno_nome'] is None for p in lista))
+
+    def test_identificacao_resolvida_no_recebimento_e_reenvio_nao_reassocia(self):
+        ana = self.api('/api/alunos',{'nome':'Ana fictícia','autorizado':True})
+        bruno = self.api('/api/alunos',{'nome':'Bruno fictício','autorizado':True})
+        antigo = {'id':'antes-do-vinculo','frase':'Pedido','dispositivo':'Sala 1'}
+        self.api('/api/pedidos',antigo,codigo=self.codigo)
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':ana['id'],'versao':0})
+        pedido = {'id':'com-vinculo','frase':'Pedido','dispositivo':'Sala 1','aluno_id':bruno['id'],'aluno_nome':bruno['nome']}
+        self.api('/api/pedidos',pedido,codigo=self.codigo)
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':bruno['id'],'versao':1})
+        self.api('/api/pedidos',pedido,codigo=self.codigo)
+        self.api('/api/pedidos',antigo,codigo=self.codigo)
+        self.api('/api/pedidos',{'id':'novo-vinculo','frase':'Pedido','dispositivo':'Sala 1'},codigo=self.codigo)
+        por_id = {p['id']:p for p in self.api('/api/pedidos')}
+        self.assertIsNone(por_id['antes-do-vinculo']['aluno_id'])
+        self.assertEqual(por_id['com-vinculo']['aluno_id'],ana['id'])
+        self.assertEqual(por_id['com-vinculo']['aluno_nome'],ana['nome'])
+        self.assertEqual(por_id['novo-vinculo']['aluno_id'],bruno['id'])
+        self.assertEqual(len(por_id),3)
+
+    def test_excluir_aluno_remove_identificacao_sem_apagar_chamados(self):
+        aluno = self.api('/api/alunos',{'nome':'Aluno a excluir','autorizado':True})
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':aluno['id'],'versao':0})
+        self.api('/api/pedidos',{'id':'preservado','frase':'Ajuda','dispositivo':'Sala 1'},codigo=self.codigo)
+        antes = self.api('/api/pedidos')[0]
+        self.api('/api/alunos/excluir',{'id':aluno['id'],'versao':1,'confirmacao':aluno['nome']})
+        depois = self.api('/api/pedidos')[0]
+        self.assertIsNone(depois['aluno_id'])
+        self.assertIsNone(depois['aluno_nome'])
+        for campo in ('id','frase','estado','recebido','atualizado'):
+            self.assertEqual(depois[campo],antes[campo])
+
+    def test_foto_do_chamado_acompanha_cadastro_sem_trocar_nome_registrado(self):
+        import base64
+        from io import BytesIO
+        from PIL import Image
+        def foto(cor):
+            saida = BytesIO()
+            Image.new('RGB',(20,20),cor).save(saida,format='PNG')
+            return base64.b64encode(saida.getvalue()).decode()
+        aluno = self.api('/api/alunos',{'nome':'Nome no envio','foto':foto('red'),'autorizado':True})
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':aluno['id'],'versao':0})
+        self.api('/api/pedidos',{'id':'com-foto','dispositivo':'Sala 1','frase':'Água'},codigo=self.codigo)
+        original = self.api('/api/pedidos')[0]
+        self.assertEqual(original['aluno_foto_url'],aluno['foto_url'])
+        editado = self.api('/api/alunos/editar',{'id':aluno['id'],'versao':1,'nome':'Nome atual','foto':foto('blue'),'autorizado':True})
+        atualizado = self.api('/api/pedidos')[0]
+        self.assertEqual(atualizado['aluno_nome'],'Nome no envio')
+        self.assertEqual(atualizado['aluno_foto_url'],editado['foto_url'])
+        self.assertNotEqual(atualizado['aluno_foto_url'],original['aluno_foto_url'])
+        self.api('/api/alunos/editar',{'id':aluno['id'],'versao':2,'nome':'Nome atual','foto':None,'autorizado':True})
+        self.assertIsNone(self.api('/api/pedidos')[0]['aluno_foto_url'])
+
+    def test_identificacao_historica_persiste_em_mudancas_e_reinicio_real(self):
+        ana = self.api('/api/alunos',{'nome':'Nome original','autorizado':True})
+        bruno = self.api('/api/alunos',{'nome':'Outro aluno','autorizado':True})
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':ana['id'],'versao':0})
+        for identificador in ('atendido-original','pendente-original'):
+            self.api('/api/pedidos',{'id':identificador,'frase':'Pedido original','dispositivo':'Sala 1'},codigo=self.codigo)
+        self.api('/api/confirmar',{'id':'atendido-original'})
+        self.api('/api/atender',{'id':'atendido-original'})
+        originais = {p['id']:p for p in self.api('/api/pedidos')}
+        self.api('/api/alunos/editar',{'id':ana['id'],'versao':1,'nome':'Nome revisado','autorizado':True})
+        self.api('/api/alunos/situacao',{'id':ana['id'],'versao':2,'ativo':False,'confirmado':True})
+        self.assertEqual({p['id']:p for p in self.api('/api/pedidos')},originais)
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':bruno['id'],'versao':1})
+        self.api('/api/pedidos',{'id':'outro-aluno','frase':'Pedido novo','dispositivo':'Sala 1'},codigo=self.codigo)
+        # Reenvio não altera nome, mensagem, comunicador nem situação já registrada.
+        self.api('/api/pedidos',{'id':'atendido-original','frase':'Tentativa de alterar','dispositivo':'Sala 1','aluno_id':bruno['id']},codigo=self.codigo)
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':None,'versao':2})
+        self.api('/api/pedidos',{'id':'sem-aluno','frase':'Pedido','dispositivo':'Sala 1'},codigo=self.codigo)
+        self.api('/api/alunos/situacao',{'id':ana['id'],'versao':3,'ativo':True,'confirmado':True})
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':ana['id'],'versao':3})
+        self.api('/api/pedidos',{'id':'nome-revisado','frase':'Pedido novo','dispositivo':'Sala 1'},codigo=self.codigo)
+        por_id = {p['id']:p for p in self.api('/api/pedidos')}
+        for identificador,pedido in originais.items():
+            self.assertEqual(por_id[identificador],pedido)
+        self.assertEqual(por_id['outro-aluno']['aluno_id'],bruno['id'])
+        self.assertEqual(por_id['nome-revisado']['aluno_nome'],'Nome revisado')
+        self.assertIsNone(por_id['sem-aluno']['aluno_id'])
+        # Encerra e inicia um servidor novo com o mesmo banco e a mesma sessão.
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+        self.server, _ = criar_servidor(('127.0.0.1',0),self.pasta)
+        self.url = 'http://127.0.0.1:' + str(self.server.server_port)
+        self.thread = threading.Thread(target=self.server.serve_forever,daemon=True)
+        self.thread.start()
+        self.assertEqual({p['id']:p for p in self.api('/api/pedidos')},por_id)
+        # Exclusão explícita anonimiza todos os nomes antigos desse aluno, sem afetar o outro.
+        self.api('/api/alunos/excluir',{'id':ana['id'],'versao':4,'confirmacao':'Nome revisado'})
+        finais = {p['id']:p for p in self.api('/api/pedidos')}
+        for identificador in ('atendido-original','pendente-original','nome-revisado'):
+            esperado = dict(por_id[identificador],aluno_id=None,aluno_nome=None,aluno_foto_url=None)
+            self.assertEqual(finais[identificador],esperado)
+        self.assertEqual(finais['outro-aluno'],por_id['outro-aluno'])
+
+    def test_identificacao_historica_respeita_48h_do_atendimento(self):
+        aluno = self.api('/api/alunos',{'nome':'Nome do chamado','autorizado':True})
+        self.api('/api/comunicadores/vincular',{'dispositivo':'Sala 1','aluno_id':aluno['id'],'versao':0})
+        for identificador in ('atendido-antigo','pendente-antigo'):
+            self.api('/api/pedidos',{'id':identificador,'frase':'Pedido','dispositivo':'Sala 1'},codigo=self.codigo)
+        self.api('/api/confirmar',{'id':'atendido-antigo'})
+        self.api('/api/atender',{'id':'atendido-antigo'})
+        instante = datetime.now(timezone.utc)
+        db = self.pasta/'pedidos.sqlite3'
+        atendimento = instante-timedelta(hours=47,minutes=30)
+        with closing(sqlite3.connect(db)) as con, con:
+            con.execute('UPDATE pedidos SET recebido=?',((instante-timedelta(hours=72)).isoformat(),))
+            con.execute('UPDATE pedidos SET atualizado=? WHERE id=?',(atendimento.isoformat(),'atendido-antigo'))
+        self.api('/api/alunos/editar',{'id':aluno['id'],'versao':1,'nome':'Nome do cadastro atual','autorizado':True})
+        self.api('/api/alunos/situacao',{'id':aluno['id'],'versao':2,'ativo':False,'confirmado':True})
+        lista = self.api('/api/pedidos')
+        self.assertEqual(len(lista),2)
+        self.assertTrue(all(p['aluno_nome']=='Nome do chamado' and p['aluno_id']==aluno['id'] for p in lista))
+        self.assertEqual(limpar_expirados(db,instante+timedelta(hours=1)),1)
+        restantes = self.api('/api/pedidos')
+        self.assertEqual(len(restantes),1)
+        self.assertEqual(restantes[0]['id'],'pendente-antigo')
+        self.assertEqual(restantes[0]['aluno_nome'],'Nome do chamado')
+
     def test_acesso_e_validacao(self):
         with self.assertRaises(HTTPError) as e:
             self.api('/api/pedidos', codigo='errado')
@@ -202,6 +364,7 @@ class Fluxo(unittest.TestCase):
         db, _ = preparar(pasta)
         with closing(sqlite3.connect(db)) as con:
             self.assertEqual(con.execute('SELECT estado FROM pedidos').fetchone()[0], 'recebido')
+            self.assertEqual(con.execute('SELECT aluno_id,aluno_nome FROM pedidos').fetchone(),(None,None))
 
     def test_acesso_protege_todas_as_acoes(self):
         for rota, dados in [('/api/config',None), ('/api/confirmar',{'id':'qualquer'}), ('/api/atender',{'id':'qualquer'}), ('/api/pedidos',{'id':'qualquer'})]:

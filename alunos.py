@@ -147,6 +147,13 @@ def alterar_cadastro(db, dados, excluir=False):
             if dados.get('confirmacao') != aluno['nome']:
                 raise ErroCadastro('Digite o nome do aluno para confirmar a exclusão definitiva.')
             con.execute('DELETE FROM fotos_alunos WHERE aluno_id=?', (identificador,))
+            if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='comunicadores'").fetchone():
+                con.execute('UPDATE comunicadores SET aluno_id=NULL,atualizado=?,versao=versao+1 WHERE aluno_id=?',
+                            (datetime.now(timezone.utc).isoformat(),identificador))
+            colunas_pedidos = {row[1] for row in con.execute('PRAGMA table_info(pedidos)')}
+            if {'aluno_id','aluno_nome'} <= colunas_pedidos:
+                # Retirada da autorização remove a identificação sem apagar chamados pendentes.
+                con.execute('UPDATE pedidos SET aluno_id=NULL,aluno_nome=NULL WHERE aluno_id=?', (identificador,))
             con.execute('DELETE FROM alunos WHERE id=?', (identificador,))
             return {'ok':True}
         if type(dados.get('ativo')) is not bool:

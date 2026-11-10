@@ -22,7 +22,7 @@ Abra `http://127.0.0.1:8765` e use:
 | Senha | `123456` |
 | Perfil | ADM Desenvolvedor |
 
-O código de 6 dígitos é um identificador de testes, não um CNPJ validado. O perfil tem acesso a todas as funções atualmente disponíveis no MVP: pedidos de todos os comunicadores, filtros, recebimento, atendimento e histórico. O cadastro de alunos permite salvar nome, foto opcional e perfil de acessibilidade. A aplicação desses perfis às telas do aluno e os vínculos com comunicadores ficam para as próximas etapas.
+O código de 6 dígitos é um identificador de testes, não um CNPJ validado. O perfil tem acesso a todas as funções atualmente disponíveis no MVP: pedidos de todos os comunicadores, filtros, recebimento, atendimento e histórico. O cadastro de alunos permite salvar nome, foto opcional e perfil de acessibilidade. A configuração de vínculos com comunicadores já está disponível; o servidor já registra o aluno no chamado. O portal mostra nome e foto nos pedidos; aplicar os perfis às telas do aluno é uma próxima etapa.
 
 `--demo` cria essa conta somente se ainda não existir uma conta configurada. Também atualiza o antigo acesso padrão de testes, revogando suas sessões. Não substitui contas personalizadas. A conta criada permanece no banco local nas próximas execuções. As credenciais acima são públicas e destinadas apenas à demonstração com dados fictícios.
 
@@ -56,7 +56,7 @@ Não há cadastro público nem redefinição por e-mail. A equipe com acesso ao 
 2. **Confirmar recebimento** muda para **Recebido**, indicando que a mensagem foi vista.
 3. **Marcar como atendido** conclui e o retira da lista de pendentes. Ele permanece consultável no histórico.
 
-Os pendentes aparecem do mais antigo para o mais recente. O histórico lista os chamados em qualquer situação, preservando os pendentes e os atendidos há menos de 48 horas, do mais recente para o mais antigo. Nessa aba há apenas a lista de consulta, com filtros de comunicador, situação (Novo, Recebido ou Atendido) e busca; as ações de atendimento ficam em Pedidos pendentes. Os contadores incluem todos os comunicadores; os filtros afetam a lista.
+Os pendentes aparecem do mais antigo para o mais recente. O histórico lista os chamados em qualquer situação, preservando os pendentes e os atendidos há menos de 48 horas, do mais recente para o mais antigo. Nessa aba há apenas a lista de consulta, com filtros de aluno, comunicador, situação (Novo, Recebido ou Atendido) e busca; as ações de atendimento ficam em Pedidos pendentes. Os contadores incluem todos os comunicadores; os filtros afetam a lista.
 
 Ative o aviso sonoro pelo botão do portal. O navegador precisa ficar aberto e o volume deve estar audível. Ative o som novamente após recarregar ou entrar em outra sessão.
 
@@ -64,7 +64,7 @@ O portal atualiza a cada dois segundos e reconecta após uma falha. Se houver fo
 
 ## Cadastro de alunos
 
-Abra **Alunos → Cadastrar novo aluno**, informe nome e perfil de acessibilidade e, se necessário, escolha uma foto. Confirme a autorização institucional e clique em **Salvar cadastro**. O perfil é uma preferência de apresentação, sem registro de diagnóstico; as interfaces por perfil ainda não foram implementadas. Não há vínculo com comunicadores nesta etapa.
+Abra **Alunos → Cadastrar novo aluno**, informe nome e perfil de acessibilidade e, se necessário, escolha uma foto. Confirme a autorização institucional e clique em **Salvar cadastro**. O perfil é uma preferência de apresentação, sem registro de diagnóstico; as interfaces por perfil ainda não foram implementadas. Os vínculos são configurados na aba Comunicadores; a identificação é registrada pelo servidor e exibida nos pedidos e no histórico.
 
 A listagem permite **Editar**, substituir ou remover a foto, **Desativar**, **Reativar** e **Excluir**. Desativar mantém os dados para consulta. Excluir exige digitar o nome e remove o cadastro e sua foto do banco ativo. O painel conta todos os alunos cadastrados, ativos e inativos, e atualiza a contagem após alterações e periodicamente.
 
@@ -72,12 +72,32 @@ Fotos aceitas: JPEG, PNG e WebP, até 5 MB, 12 megapixels e 8192 pixels por lado
 
 ### Dados, autorização e exclusão
 
-- Dados mantidos: identificação interna, nome de identificação, foto opcional, perfil de apresentação, situação, datas, versão do cadastro e confirmação de autorização (data e usuário). Não são solicitados CPF, endereço, laudo, e-mail ou data de nascimento.
+- Dados mantidos: identificação interna, nome de identificação, foto opcional, perfil de apresentação, situação, datas, versão do cadastro, confirmação de autorização (data e usuário) e vínculo com a identificação do aparelho. Não são solicitados CPF, endereço, laudo, e-mail ou data de nascimento.
 - A pessoa que cadastra confirma a autorização institucional para o cadastro e a foto. O servidor registra essa confirmação e bloqueia o salvamento sem ela. A instituição mantém a documentação correspondente fora do sistema e define o responsável por autorizar o uso; o checkbox não substitui essa documentação. Na apresentação, utilize cadastros e imagens fictícios.
 - Acesso: a única conta de tutora/ADM desta instalação pode consultar e gerenciar todos os alunos. Ainda não existe separação entre várias instituições ou tutoras.
 - Retenção: cadastros ativos e inativos permanecem até exclusão explícita. A limpeza de 48 horas é exclusiva dos chamados atendidos, sem apagar alunos ou fotos.
-- Retirada da autorização: exclua o cadastro para remover os dados e a foto do banco ativo. Desativar, por si só, não retira esses dados. Nesta etapa os chamados não contêm vínculo com alunos e não são alterados por essa exclusão.
+- Retirada da autorização: exclua o cadastro para remover os dados e a foto do banco ativo. Desativar, por si só, não retira esses dados. A exclusão também remove o nome e a referência do aluno dos vínculos, mantendo a identificação do aparelho sem aluno. A exclusão também remove identificação e nome do aluno dos chamados, preservando mensagem, situação e datas; chamados pendentes não são apagados.
 - Não há backup automático. Uma cópia manual de `data/` contém fotos e dados pessoais; deve ficar restrita à equipe responsável. A exclusão do banco ativo não altera cópias externas. Essas cópias devem ser revisadas ao atender uma exclusão, e dados excluídos não devem ser reintroduzidos ao restaurar uma cópia. A política de backups para implantação ainda precisa ser definida com a instituição.
+
+## Vínculos dos comunicadores
+
+Na aba **Comunicadores**, informe a identificação exata usada no argumento `--dispositivo` do aparelho (por exemplo, `Comunicador 01`; o padrão sem esse argumento é `MVP`). Selecione um aluno ativo e clique em **Salvar vínculo**. A lista reúne aparelhos cadastrados manualmente e os que já enviaram pedidos ao servidor. A identificação diferencia maiúsculas e minúsculas.
+
+Use **Alterar vínculo** para trocar o aluno. Escolha **Sem aluno vinculado** para remover a associação; trocas e remoções pedem confirmação. Cada aparelho tem um aluno por vez, e um aluno pode utilizar vários aparelhos. O vínculo permanece após reiniciar o servidor. Edições feitas em outra sessão são detectadas para evitar sobrescrever alterações sem revisão.
+
+Desativar o aluno mantém o vínculo existente com a indicação de inativo; não é possível criar um vínculo novo com esse aluno. Excluir o aluno remove sua referência dos aparelhos. Apenas a conta autenticada pode consultar ou alterar vínculos; a credencial de envio do comunicador não permite essas operações.
+
+O vínculo pode ser configurado no portal e o servidor já registra `aluno_id` e `aluno_nome` nos chamados novos, usando exclusivamente o aluno ativo vinculado à identificação do aparelho. O comunicador continua enviando sua identificação normalmente; não precisa consultar cadastros ou carregar dados pessoais. Identificações de aluno informadas pelo remetente não substituem o vínculo configurado no servidor.
+
+A associação é definida quando o servidor recebe o pedido, inclusive no envio de mensagens que ficaram na fila sem conexão. Aparelhos sem vínculo e alunos inativos não bloqueiam pedidos: nesses casos os campos do aluno ficam vazios. Pedidos anteriores à configuração não são associados retroativamente. O reenvio do mesmo pedido mantém o primeiro registro. Alterar o vínculo vale para os próximos pedidos, sem reatribuir registros já recebidos.
+
+Os pedidos pendentes e o histórico exibem o nome registrado no recebimento, a foto atual do cadastro e a identificação do comunicador. Sem foto, aparecem as iniciais. Se a imagem não puder ser carregada, as iniciais continuam visíveis. Pedidos sem aluno mostram **Aluno não identificado**. A foto continua protegida pelo login e não há cópias históricas das imagens.
+
+O filtro **Aluno** funciona nos pendentes e no histórico e pode ser combinado com comunicador, situação e busca por mensagem, nome exibido do aluno ou comunicador. Há opções **Todos os alunos** e **Sem aluno identificado**. A filtragem usa a identificação interna, mantendo separados cadastros de mesmo nome. Os cadastros ativos/inativos e os alunos presentes nos chamados alimentam as opções. Atualizações e mudanças entre pendentes e histórico preservam a seleção; sair do portal limpa as opções pessoais e os filtros.
+
+A identificação histórica usa a identificação interna e o nome salvos no recebimento, sem recalcular o aluno pelo vínculo atual do aparelho. Renomear, desativar ou reativar um aluno, trocar/remover o vínculo, reenviar o mesmo pedido e reiniciar o servidor não alteram esses campos dos chamados já recebidos. Um pedido novo passa a usar o nome e vínculo válidos no seu recebimento; um pedido antigo sem aluno não recebe associação retroativa.
+
+As fotos continuam sendo as atuais do cadastro daquele aluno, sem manter cópias antigas. A exclusão definitiva é a exceção deliberada: remove identificação e nome desse aluno dos chamados e apaga sua foto, preservando solicitações, situações e datas. Isso não afeta chamados de outros alunos. Pendentes permanecem até o atendimento; os atendidos saem 48 horas depois do atendimento, mesmo que o cadastro tenha sido renomeado ou desativado.
 
 ## Exclusão em 48 horas
 
@@ -113,6 +133,7 @@ Use uma identificação diferente por aparelho, com até 80 caracteres. O Raspbe
 
 - `servidor.py`: API, pedidos, retenção e sessões HTTP.
 - `alunos.py`: cadastros, fotos, autorização, edição e desativação/exclusão.
+- `comunicadores.py`: configuração persistente dos vínculos, sem alterar chamados nesta etapa.
 - `requirements.txt`: dependência Pillow usada no servidor.
 - `acesso.py`: senha derivada, autenticação, sessão e bloqueio de tentativas.
 - `configurar_acesso.py`: configuração e redefinição local da conta.
@@ -138,5 +159,5 @@ python -m unittest discover -s tests -v
 
 A suíte verifica login, rejeição de credenciais, expiração e revogação de sessão, limite de tentativas, credenciais separadas dos comunicadores, estados de pedidos, retenção de 48 horas, persistência, migração e reenvio sem duplicação.
 
-O cadastro foi ensaiado no Edge em larguras de computador e celular com banco temporário e dados fictícios. Ainda faltam celular real, áudio, leitor de tela, Raspberry físico e ensaio na rede da apresentação. Adaptações das interfaces e vínculos com comunicadores são próximas etapas.
+O cadastro foi ensaiado no Edge em larguras de computador e celular com banco temporário e dados fictícios. Ainda faltam celular real, áudio, leitor de tela, Raspberry físico e ensaio na rede da apresentação. As adaptações das interfaces do aluno são uma próxima etapa. A identificação histórica foi verificada após renomear, trocar o aluno do aparelho, excluir o cadastro, recarregar o portal e reiniciar o servidor.
 O ensaio de interface em `tests/test_portal_alunos.cjs` usa Playwright e inicia um servidor com banco temporário próprio, sem alterar os cadastros da instalação. Para executá-lo, disponibilize o pacote Playwright e seu Chromium e use `node tests/test_portal_alunos.cjs`. Opcionalmente, `PYTHON_TEST` seleciona o executável Python e `TEST_BROWSER=msedge` usa o Edge instalado. As capturas ficam em `tmp/`, fora do Git.

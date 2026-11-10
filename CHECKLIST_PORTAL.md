@@ -15,10 +15,10 @@
 - [x] Sessão com validade de oito horas, saída revogável e limite de tentativas.
 - [x] Credencial dos comunicadores separada do acesso ao portal.
 - [x] Lista de pendentes e histórico com pendentes e chamados atendidos há menos de 48 horas.
-- [x] Histórico somente para consulta, sem cartões de resumo ou ações, com filtros por comunicador e situação e busca.
+- [x] Histórico somente para consulta, sem cartões de resumo ou ações, com filtros por aluno, comunicador e situação e busca.
 - [x] Identificação, mensagem, horário, situação e ações.
 - [x] Contadores por situação.
-- [x] Filtros por comunicador e situação; busca textual.
+- [x] Filtros por aluno, comunicador e situação; busca textual por mensagem, nome do aluno ou comunicador.
 - [x] Ajuda destacada por texto e cor.
 - [x] Layout para computador e largura de celular, sem rolagem horizontal.
 - [x] Campos identificados, foco visível e atualização sem interromper o foco na lista.
@@ -48,12 +48,22 @@
 
 O perfil inicial é padrão; os demais valores representam opções de interface, sem registrar diagnóstico clínico. A tabela não cria alunos automaticamente. A confirmação no formulário não substitui a documentação de autorização mantida pela instituição. Fotos e cadastros foram testados no Edge com banco temporário e dados fictícios, em larguras de computador e celular.
 
+## Vincular alunos aos comunicadores — execução por etapas
+
+- [x] Permitir associar um comunicador a um aluno: tela própria, vínculo persistente, troca e remoção confirmadas, seleção de alunos ativos e API protegida por sessão.
+- [x] Registrar a identificação do aluno no chamado: o servidor resolve o vínculo ativo pelo comunicador e salva identificação e nome no recebimento.
+- [x] Mostrar nome e foto atual do aluno nos pedidos pendentes e no histórico; usar iniciais sem foto e informar quando o aluno não foi identificado.
+- [x] Acrescentar filtro por aluno nos pendentes e no histórico, combinado com comunicador, situação e busca; opção para pedidos sem aluno identificado e seleção preservada durante atualizações.
+- [x] Preservar identificação e nome registrados no recebimento após renomear/desativar o aluno, trocar/remover vínculos, reenviar ou reiniciar o servidor; anonimizar somente na exclusão definitiva e manter a retenção por atendimento.
+
+Os cinco itens desta etapa foram implementados e verificados, incluindo histórico após alterações do cadastro, troca de aluno no aparelho e reinício real do servidor. O portal usa o nome registrado no recebimento e a foto atual do cadastro; não mantém cópias antigas de fotos. Cada aparelho tem no máximo um aluno vinculado; um aluno pode utilizar vários aparelhos. Alunos inativos continuam identificados como inativos nos vínculos existentes, mas não recebem vínculos novos. Excluir um aluno remove sua identificação dos vínculos e mantém o registro do aparelho. Pedidos novos de aparelhos vinculados registram o aluno ativo no recebimento. Sem vínculo ou com aluno inativo, o chamado continua chegando sem identificação de aluno. Pedidos anteriores não são associados retroativamente. Excluir o cadastro também remove a identificação dos chamados, sem apagar a solicitação nem alterar seu estado ou prazo de retenção.
+
 ## Próximos desenvolvimentos
 
 - [x] Cadastro, edição e desativação de alunos.
 - [ ] Aplicar os perfis às interfaces do aluno e personalizar mensagens; seleção do perfil no cadastro já disponível.
-- [ ] Vínculo entre aluno e comunicador.
-- [ ] Identificação do aluno nos pedidos.
+- [x] Configuração do vínculo, registro e exibição da identificação e filtro por aluno no portal.
+- [x] Mostrar a identificação e a foto do aluno nos pedidos do portal.
 
 ## Validação que depende dos aparelhos e da equipe
 

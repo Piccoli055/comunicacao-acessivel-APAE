@@ -1,5 +1,6 @@
 """Serviço local do MVP. Python, SQLite e Pillow para validar fotografias."""
 import argparse
+from comunicadores import preparar_comunicadores, listar_comunicadores, salvar_vinculo
 from alunos import (preparar_alunos, listar_alunos, salvar_aluno, alterar_cadastro, ler_foto, ErroCadastro)
 from contextlib import closing
 import hmac
@@ -39,7 +40,7 @@ def preparar(pasta):
     with closing(sqlite3.connect(db)) as con, con:
         con.execute('CREATE TABLE IF NOT EXISTS pedidos (id TEXT PRIMARY KEY, frase TEXT NOT NULL, dispositivo TEXT NOT NULL, recebido TEXT NOT NULL, confirmado INTEGER NOT NULL DEFAULT 0)')
         colunas = {row[1] for row in con.execute('PRAGMA table_info(pedidos)')}
-        for nome, definicao in [('estado', "TEXT NOT NULL DEFAULT 'novo'"), ('prioridade', "TEXT NOT NULL DEFAULT 'normal'"), ('atualizado', 'TEXT')]:
+        for nome, definicao in [('estado', "TEXT NOT NULL DEFAULT 'novo'"), ('prioridade', "TEXT NOT NULL DEFAULT 'normal'"), ('atualizado', 'TEXT'), ('aluno_id', 'TEXT'), ('aluno_nome', 'TEXT')]:
             if nome not in colunas:
                 con.execute(f'ALTER TABLE pedidos ADD COLUMN {nome} {definicao}')
         con.execute("UPDATE pedidos SET estado='recebido' WHERE confirmado=1 AND estado='novo'")
@@ -48,6 +49,7 @@ def preparar(pasta):
     limpar_expirados(db)
     preparar_acesso(db)
     preparar_alunos(db)
+    preparar_comunicadores(db)
     return db, segredo.read_text(encoding='utf-8').strip()
 
 
@@ -129,8 +131,14 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                 self.send_header('Content-Length', str(len(foto)))
                 self.end_headers()
                 self.wfile.write(foto)
-            elif rota in ('/api/pedidos', '/api/config', '/api/sessao', '/api/alunos'):
+            elif rota in ('/api/pedidos', '/api/config', '/api/sessao', '/api/alunos', '/api/comunicadores'):
                 if not self.autorizado():
+                    return
+                if rota == '/api/comunicadores':
+                    try:
+                        self.responder(200, listar_comunicadores(db))
+                    except sqlite3.Error:
+                        self.responder(503, {'erro':'Não foi possível carregar os comunicadores. Tente novamente.'})
                     return
                 if rota == '/api/alunos':
                     try:
@@ -147,7 +155,12 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                 limpar_expirados(db)
                 with closing(sqlite3.connect(db, timeout=10)) as con:
                     con.row_factory = sqlite3.Row
-                    rows = con.execute('SELECT * FROM pedidos ORDER BY recebido ASC, id ASC').fetchall()
+                    rows = con.execute("""
+                        SELECT p.*, CASE WHEN f.token IS NOT NULL
+                            THEN '/api/fotos/' || f.token ELSE NULL END AS aluno_foto_url
+                        FROM pedidos p LEFT JOIN fotos_alunos f ON f.aluno_id=p.aluno_id
+                        ORDER BY p.recebido ASC,p.id ASC
+                    """).fetchall()
                 self.responder(200, [dict(row) for row in rows])
             else:
                 self.responder(404, {'erro': 'Página não encontrada.'})
@@ -178,6 +191,9 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                     encerrar_sessao(db, self.token_sessao())
                     self.responder(200, {'ok': True}, cookie=self.cookie(apagar=True))
                     return
+                if rota == '/api/comunicadores/vincular':
+                    self.responder(200, salvar_vinculo(db, dados))
+                    return
                 if rota in ('/api/alunos', '/api/alunos/editar'):
                     perfil = consultar_sessao(db, self.token_sessao())
                     if not perfil:
@@ -199,8 +215,14 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                         if prioridade not in ('normal', 'ajuda'):
                             raise ValueError()
                         instante = datetime.now(timezone.utc).isoformat()
-                        con.execute('INSERT OR IGNORE INTO pedidos (id, frase, dispositivo, recebido, prioridade, atualizado) VALUES (?, ?, ?, ?, ?, ?)',
-                                    (dados['id'], dados['frase'].strip(), dados['dispositivo'].strip(), instante, prioridade, instante))
+                        # O vínculo é resolvido pelo servidor; o aparelho não escolhe outro aluno.
+                        # A mesma transação impede troca do vínculo entre a leitura e o registro.
+                        con.execute('BEGIN IMMEDIATE')
+                        dispositivo = dados['dispositivo'].strip()
+                        aluno = con.execute('SELECT a.id,a.nome FROM comunicadores c JOIN alunos a ON a.id=c.aluno_id WHERE c.dispositivo=? AND a.ativo=1', (dispositivo,)).fetchone()
+                        aluno_id, aluno_nome = aluno if aluno else (None, None)
+                        con.execute('INSERT OR IGNORE INTO pedidos (id, frase, dispositivo, recebido, prioridade, atualizado, aluno_id, aluno_nome) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                                    (dados['id'], dados['frase'].strip(), dispositivo, instante, prioridade, instante, aluno_id, aluno_nome))
                     elif rota in ('/api/confirmar', '/api/atender'):
                         if not isinstance(dados.get('id'), str) or not dados['id']:
                             raise ValueError()

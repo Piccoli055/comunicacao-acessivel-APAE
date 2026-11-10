@@ -7,6 +7,8 @@ let toastTimer = null;
 let alunos = [], alunosCarregados = false, consultaAlunos = null;
 let fotoAlunoURL = null, alunoEdicao = null, novoAlunoId = null, removerFoto = false;
 let geracaoFormulario = 0, salvandoAluno = false, ultimaConsultaAlunos = 0;
+let comunicadores = [], consultaComunicadores = null, comunicadoresCarregados = false;
+let vinculoBase = null, salvandoVinculo = false;
 const perfisAlunos = {padrao: 'Padrão', tea: 'TEA', motora: 'Acessibilidade motora', baixa_visao: 'Baixa visão', intelectual: 'Acessibilidade cognitiva'};
 const requisicoes = new Set();
 const nomes = {novo: 'Novo', recebido: 'Recebido', atendido: 'Atendido'};
@@ -59,7 +61,29 @@ function elemento(tag, classe, texto) {
   return node;
 }
 
+function atualizarFiltroAluno() {
+  const selecionado = $('filtro-aluno').value;
+  const nomesPorId = new Map();
+  // Os chamados mantêm alunos do histórico; o cadastro fornece o nome atual.
+  for (const pedido of pedidos) {
+    if (pedido.aluno_id) nomesPorId.set(pedido.aluno_id, pedido.aluno_nome || 'Aluno sem nome');
+  }
+  for (const aluno of alunos) nomesPorId.set(aluno.id, aluno.nome + (aluno.ativo ? '' : ' (inativo)'));
+  // Expiração e atualização não devem ampliar silenciosamente a consulta.
+  if (selecionado && selecionado !== '__sem_aluno__' && !nomesPorId.has(selecionado)) {
+    nomesPorId.set(selecionado, 'Aluno selecionado (sem pedidos disponíveis)');
+  }
+  const opcoes = [['','Todos os alunos'],['__sem_aluno__','Sem aluno identificado'],
+    ...[...nomesPorId].sort((a,b) => a[1].localeCompare(b[1], 'pt-BR') || a[0].localeCompare(b[0]))];
+  const atuais = Array.from($('filtro-aluno').options).map(o => [o.value,o.textContent]);
+  if (JSON.stringify(atuais) !== JSON.stringify(opcoes)) {
+    $('filtro-aluno').replaceChildren(...opcoes.map(([id,nome]) => new Option(nome,id)));
+    $('filtro-aluno').value = selecionado;
+  }
+}
+
 function resumo() {
+  atualizarFiltroAluno();
   for (const [estado, id] of [['novo', 'total-novos'], ['recebido', 'total-recebidos'], ['atendido', 'total-atendidos']]) {
     $(id).textContent = pedidos.filter(p => p.estado === estado).length;
   }
@@ -78,13 +102,37 @@ function resumo() {
   }
 }
 
+function nomeAlunoPedido(pedido) {
+  return pedido.aluno_id && pedido.aluno_nome ? pedido.aluno_nome : 'Aluno não identificado';
+}
+
+function avatarAlunoPedido(pedido) {
+  const nome = nomeAlunoPedido(pedido);
+  const iniciais = pedido.aluno_id && pedido.aluno_nome
+    ? nome.trim().split(/\s+/u).slice(0, 2).map(parte => Array.from(parte)[0]).join('').toLocaleUpperCase('pt-BR')
+    : '?';
+  const avatar = elemento('span', 'aluno-avatar avatar-pedido', iniciais);
+  avatar.setAttribute('aria-hidden', 'true');
+  if (pedido.aluno_id && pedido.aluno_foto_url) {
+    const foto = elemento('img', 'foto-aluno');
+    foto.alt = ''; foto.src = pedido.aluno_foto_url;
+    foto.addEventListener('error', () => foto.remove());
+    avatar.append(foto);
+  }
+  return avatar;
+}
+
 function registroHistorico(pedido) {
   const registro = elemento('article', 'registro-historico');
   const mensagem = elemento('div', 'registro-mensagem');
   mensagem.append(elemento('h2', '', pedido.frase));
   if (pedido.prioridade === 'ajuda') mensagem.append(elemento('span', 'selo ajuda', 'Pedido de ajuda'));
   const comunicador = elemento('div', 'registro-comunicador');
-  comunicador.append(elemento('small', 'rotulo-registro', 'Comunicador'), elemento('span', '', pedido.dispositivo));
+  const identificacao = elemento('div', 'identidade-historico');
+  const dadosAluno = elemento('div', 'dados-identidade');
+  dadosAluno.append(elemento('span', 'aluno-pedido-nome', nomeAlunoPedido(pedido)), elemento('small', 'comunicador-pedido', pedido.dispositivo));
+  identificacao.append(avatarAlunoPedido(pedido), dadosAluno);
+  comunicador.append(elemento('small', 'rotulo-registro', 'Aluno / comunicador'), identificacao);
   const situacao = elemento('div', 'registro-situacao');
   situacao.append(elemento('small', 'rotulo-registro', 'Situação'), elemento('span', 'selo ' + pedido.estado, nomes[pedido.estado]));
   const recebimento = elemento('div', 'registro-recebimento');
@@ -99,15 +147,17 @@ function registroHistorico(pedido) {
 
 function renderizar(forcar = false) {
   resumo();
-  if (visao === 'alunos') return;
+  if (visao === 'alunos' || visao === 'comunicadores') return;
   const busca = $('busca').value.trim().toLocaleLowerCase('pt-BR');
   const comunicador = $('dispositivo').value, situacao = $('filtro-estado').value;
+  const alunoSelecionado = $('filtro-aluno').value;
   let lista = pedidos.filter(p => (visao === 'historico' || p.estado !== 'atendido')
     && (!comunicador || p.dispositivo === comunicador)
     && (!situacao || p.estado === situacao)
-    && (!busca || (p.frase + ' ' + p.dispositivo).toLocaleLowerCase('pt-BR').includes(busca)));
+    && (!alunoSelecionado || (alunoSelecionado === '__sem_aluno__' ? !p.aluno_id : p.aluno_id === alunoSelecionado))
+    && (!busca || (p.frase + ' ' + p.dispositivo + ' ' + nomeAlunoPedido(p)).toLocaleLowerCase('pt-BR').includes(busca)));
   if (visao === 'historico') lista = lista.slice().reverse();
-  const novaAssinatura = JSON.stringify([visao, lista]);
+  const novaAssinatura = JSON.stringify([visao, comunicador, situacao, alunoSelecionado, busca, lista]);
   if (novaAssinatura === assinatura) return;
   if (!forcar && $('pedidos').contains(document.activeElement)) {
     $('texto-novos').textContent = 'Há atualizações na lista. Atualize quando terminar sua ação.';
@@ -123,7 +173,7 @@ function renderizar(forcar = false) {
       continue;
     }
     const card = elemento('article', 'pedido' + (pedido.prioridade === 'ajuda' ? ' ajuda' : ''));
-    const simbolo = elemento('div', 'pedido-icone', pedido.prioridade === 'ajuda' ? '!' : '↗');
+    const simbolo = avatarAlunoPedido(pedido);
     simbolo.setAttribute('aria-hidden', 'true');
     const corpo = elemento('div', 'pedido-corpo');
     const selos = elemento('div', 'pedido-selos');
@@ -135,7 +185,7 @@ function renderizar(forcar = false) {
     const tempo = elemento('time', '', horario.toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}));
     tempo.dateTime = pedido.recebido;
     meta.append(elemento('span', 'identificacao', pedido.dispositivo), tempo);
-    corpo.append(selos, titulo, meta);
+    corpo.append(elemento('p', 'aluno-pedido-nome', nomeAlunoPedido(pedido)), selos, titulo, meta);
     if (pedido.estado !== 'novo') {
       const quando = new Date(pedido.atualizado).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'});
       corpo.append(elemento('div', 'pedido-tempo', (pedido.estado === 'atendido' ? 'Atendido' : 'Recebimento confirmado') + ' às ' + quando));
@@ -144,7 +194,7 @@ function renderizar(forcar = false) {
     if (pedido.estado !== 'atendido') {
       const botao = elemento('button', 'botao acao ' + (pedido.estado === 'novo' ? 'principal' : 'secundaria'),
         pedido.estado === 'novo' ? 'Confirmar recebimento' : 'Marcar como atendido');
-      botao.setAttribute('aria-label', botao.textContent + ': ' + pedido.frase + ' — ' + pedido.dispositivo);
+      botao.setAttribute('aria-label', botao.textContent + ': ' + nomeAlunoPedido(pedido) + ' — ' + pedido.frase + ' — ' + pedido.dispositivo);
       botao.addEventListener('click', () => alterarPedido(pedido, botao));
       card.append(botao);
     }
@@ -157,9 +207,9 @@ function renderizar(forcar = false) {
     : (lista.length === 1 ? ' pedido' : ' pedidos'));
   $('vazio').hidden = lista.length !== 0;
   if (!lista.length) {
-    const filtrado = Boolean(busca || comunicador || situacao);
+    const filtrado = Boolean(busca || comunicador || situacao || alunoSelecionado);
     $('vazio-titulo').textContent = filtrado ? 'Nenhum pedido encontrado' : visao === 'historico' ? 'Nenhum chamado no histórico' : 'Tudo tranquilo por aqui';
-    $('vazio-texto').textContent = filtrado ? 'Experimente outro comunicador, situação ou termo de busca.' : visao === 'historico' ? 'Os chamados aparecerão aqui em qualquer situação. Os atendidos saem 48 horas após o atendimento.' : 'Os novos pedidos aparecerão neste espaço.';
+    $('vazio-texto').textContent = filtrado ? 'Experimente outro aluno, comunicador, situação ou termo de busca.' : visao === 'historico' ? 'Os chamados aparecerão aqui em qualquer situação. Os atendidos saem 48 horas após o atendimento.' : 'Os novos pedidos aparecerão neste espaço.';
   }
 }
 
@@ -286,6 +336,8 @@ function renderizarAlunos() {
   $('quantidade-alunos').textContent = alunos.length + (alunos.length === 1 ? ' aluno cadastrado' : ' alunos cadastrados');
   $('vazio-alunos').hidden = alunos.length !== 0;
   $('total-alunos').textContent = alunos.length;
+  atualizarFiltroAluno();
+  renderizarOpcoesVinculo();
 }
 
 async function atualizarAlunos() {
@@ -328,6 +380,154 @@ async function atualizarAlunos() {
   const operacao = consultaAlunos;
   await operacao;
   if (consultaAlunos === operacao) consultaAlunos = null;
+}
+
+function renderizarOpcoesVinculo() {
+  const selecionado = $('vinculo-aluno').value;
+  const opcoes = [new Option('Sem aluno vinculado', '')];
+  for (const aluno of alunos) {
+    if (!aluno.ativo && aluno.id !== selecionado) continue;
+    const opcao = new Option(aluno.nome + (aluno.ativo ? '' : ' (inativo)'), aluno.id);
+    opcao.disabled = !aluno.ativo;
+    opcoes.push(opcao);
+  }
+  if (selecionado && !alunos.some(a => a.id === selecionado)) {
+    const ausente = new Option('Aluno indisponível — escolha outra opção', selecionado);
+    ausente.disabled = true; opcoes.push(ausente);
+  }
+  $('vinculo-aluno').replaceChildren(...opcoes);
+  $('vinculo-aluno').value = selecionado;
+  $('salvar-vinculo').disabled = salvandoVinculo || !alunosCarregados || !comunicadoresCarregados;
+}
+
+function limparFormularioVinculo(focar = true) {
+  vinculoBase = null;
+  $('formulario-vinculo').reset();
+  $('vinculo-dispositivo').setCustomValidity('');
+  $('erro-vinculo').hidden = true;
+  $('erro-vinculo').textContent = '';
+  $('resultado-vinculo').textContent = '';
+  if (focar) $('vinculo-dispositivo').focus();
+}
+
+function identificarVinculo() {
+  const nome = $('vinculo-dispositivo').value.trim();
+  $('vinculo-dispositivo').setCustomValidity(nome ? '' : 'Informe a identificação do comunicador.');
+  if (vinculoBase && vinculoBase.dispositivo === nome) return;
+  const atual = comunicadores.find(c => c.dispositivo === nome);
+  vinculoBase = {dispositivo:nome, versao:atual ? atual.versao : 0, aluno_id:atual ? atual.aluno_id : null};
+  // Recria as opções antes de selecionar um aluno que pode estar inativo.
+  if (atual && atual.aluno_id) {
+    const opcao = new Option(atual.aluno_nome, atual.aluno_id);
+    $('vinculo-aluno').append(opcao);
+  }
+  $('vinculo-aluno').value = atual && atual.aluno_id ? atual.aluno_id : '';
+  renderizarOpcoesVinculo();
+  $('resultado-vinculo').textContent = atual && atual.aluno_id && !atual.aluno_ativo ? 'O aluno vinculado está inativo. Escolha um aluno ativo ou remova o vínculo.' : '';
+  $('erro-vinculo').hidden = true;
+}
+
+function renderizarComunicadores() {
+  const fragmento = document.createDocumentFragment();
+  for (const comunicador of comunicadores) {
+    const linha = elemento('li', 'registro-comunicador-vinculo');
+    const dados = elemento('div', 'aluno-dados');
+    dados.append(elemento('h2', '', comunicador.dispositivo));
+    dados.append(elemento('p', '', comunicador.aluno_id ? 'Aluno: ' + comunicador.aluno_nome + (comunicador.aluno_ativo ? '' : ' (inativo)') : 'Sem aluno vinculado'));
+    const editar = elemento('button', 'botao-texto', 'Alterar vínculo');
+    editar.type = 'button'; editar.setAttribute('aria-label', 'Alterar vínculo: ' + comunicador.dispositivo);
+    editar.addEventListener('click', () => {
+      if (salvandoVinculo) return;
+      vinculoBase = null;
+      $('vinculo-dispositivo').value = comunicador.dispositivo;
+      identificarVinculo();
+      $('vinculo-aluno').focus();
+    });
+    linha.append(dados, editar); fragmento.append(linha);
+  }
+  $('lista-comunicadores').replaceChildren(fragmento);
+  $('opcoes-comunicadores').replaceChildren(...comunicadores.map(c => new Option(c.dispositivo, c.dispositivo)));
+  $('quantidade-comunicadores').textContent = comunicadores.length + (comunicadores.length === 1 ? ' comunicador' : ' comunicadores');
+  $('vazio-comunicadores').hidden = comunicadores.length !== 0;
+  renderizarOpcoesVinculo();
+}
+
+async function atualizarComunicadores() {
+  if (!conectado) return;
+  if (consultaComunicadores) return consultaComunicadores;
+  const atual = sessao;
+  $('lista-comunicadores').setAttribute('aria-busy', 'true');
+  $('atualizar-comunicadores').disabled = true;
+  $('erro-comunicadores').hidden = true;
+  if (!comunicadoresCarregados) {
+    $('quantidade-comunicadores').textContent = 'Carregando comunicadores…';
+    $('vazio-comunicadores').hidden = true;
+  }
+  consultaComunicadores = (async () => {
+    try {
+      const lista = await api('/api/comunicadores');
+      if (atual !== sessao || !conectado) return;
+      comunicadores = lista; comunicadoresCarregados = true;
+      renderizarComunicadores();
+    } catch (erro) {
+      if (atual !== sessao || !conectado) return;
+      if (erro.status === 401) tratarErroCadastro(erro);
+      else {
+        $('erro-comunicadores').textContent = erro.message + (comunicadoresCarregados ? ' A lista anterior continua visível.' : ' Use Atualizar comunicadores para tentar novamente.');
+        $('erro-comunicadores').hidden = false;
+        if (!comunicadoresCarregados) $('quantidade-comunicadores').textContent = 'Lista indisponível';
+      }
+    } finally {
+      if (atual === sessao) {
+        $('lista-comunicadores').setAttribute('aria-busy', 'false');
+        $('atualizar-comunicadores').disabled = false;
+      }
+    }
+  })();
+  const operacao = consultaComunicadores;
+  await operacao;
+  if (consultaComunicadores === operacao) consultaComunicadores = null;
+}
+
+async function salvarVinculo(evento) {
+  evento.preventDefault();
+  if (!conectado || salvandoVinculo || !alunosCarregados || !comunicadoresCarregados) return;
+  const dispositivo = $('vinculo-dispositivo').value.trim();
+  $('vinculo-dispositivo').setCustomValidity(dispositivo ? '' : 'Informe a identificação do comunicador.');
+  if (!$('formulario-vinculo').reportValidity()) return;
+  if (!vinculoBase || vinculoBase.dispositivo !== dispositivo) identificarVinculo();
+  const alunoId = $('vinculo-aluno').value || null;
+  if (vinculoBase.aluno_id && vinculoBase.aluno_id !== alunoId && !window.confirm(alunoId ? 'Trocar o aluno vinculado ao comunicador ' + dispositivo + '?' : 'Remover o vínculo do comunicador ' + dispositivo + '?')) return;
+  const dados = {dispositivo, aluno_id:alunoId, versao:vinculoBase.versao};
+  const atual = sessao;
+  salvandoVinculo = true;
+  $('campos-vinculo').disabled = true;
+  $('salvar-vinculo').textContent = 'Salvando…';
+  $('erro-vinculo').hidden = true;
+  $('resultado-vinculo').textContent = '';
+  try {
+    await api('/api/comunicadores/vincular', dados);
+    if (atual !== sessao || !conectado) return;
+    limparFormularioVinculo(false);
+    if (consultaComunicadores) await consultaComunicadores;
+    if (atual !== sessao || !conectado) return;
+    await atualizarComunicadores();
+    if (atual !== sessao || !conectado) return;
+    $('resultado-vinculo').textContent = alunoId ? 'Vínculo salvo.' : 'Comunicador salvo sem aluno vinculado.';
+    $('quantidade-comunicadores').setAttribute('tabindex', '-1');
+    $('quantidade-comunicadores').focus({preventScroll:true});
+  } catch (erro) {
+    if (atual !== sessao || !conectado) return;
+    if (erro.status === 401) tratarErroCadastro(erro);
+    else { $('erro-vinculo').textContent = erro.message; $('erro-vinculo').hidden = false; }
+  } finally {
+    if (atual === sessao) {
+      salvandoVinculo = false;
+      $('campos-vinculo').disabled = false;
+      $('salvar-vinculo').textContent = 'Salvar vínculo';
+      renderizarOpcoesVinculo();
+    }
+  }
 }
 
 function tratarErroCadastro(erro) {
@@ -433,7 +633,7 @@ function aplicarPedidos(lista) {
   conexao(true);
   renderizar();
   if (novos.length) {
-    $('anuncio').textContent = novos.length === 1 ? 'Novo pedido de ' + novos[0].dispositivo + ': ' + novos[0].frase : novos.length + ' novos pedidos recebidos.';
+    $('anuncio').textContent = novos.length === 1 ? 'Novo pedido de ' + nomeAlunoPedido(novos[0]) + ', ' + novos[0].dispositivo + ': ' + novos[0].frase : novos.length + ' novos pedidos recebidos.';
     if (somAtivo) tocar();
   }
 }
@@ -523,6 +723,14 @@ function limparSessao(focar = true) {
   pedidos = []; vistos.clear(); primeiraCarga = true; assinatura = '';
   alunos = []; alunosCarregados = false; consultaAlunos = null; ultimaConsultaAlunos = 0;
   $('total-alunos').textContent = '—';
+  comunicadores = []; consultaComunicadores = null; comunicadoresCarregados = false; salvandoVinculo = false;
+  limparFormularioVinculo(false);
+  $('campos-vinculo').disabled = false; $('salvar-vinculo').textContent = 'Salvar vínculo';
+  $('lista-comunicadores').replaceChildren(); $('opcoes-comunicadores').replaceChildren();
+  $('lista-comunicadores').setAttribute('aria-busy', 'false');
+  $('quantidade-comunicadores').textContent = ''; $('erro-comunicadores').textContent = '';
+  $('erro-comunicadores').hidden = true; $('vazio-comunicadores').hidden = true;
+  $('atualizar-comunicadores').disabled = false; renderizarOpcoesVinculo();
   fecharFormularioAluno(false);
   $('lista-alunos').replaceChildren();
   $('lista-alunos').setAttribute('aria-busy', 'false');
@@ -542,23 +750,34 @@ function limparSessao(focar = true) {
   $('aviso-novos').hidden = true; $('anuncio').textContent = '';
   $('conectar').disabled = false; $('conectar').textContent = 'Entrar no portal →';
   $('dispositivo').replaceChildren(new Option('Todos os comunicadores', ''));
+  $('filtro-aluno').replaceChildren(new Option('Todos os alunos',''), new Option('Sem aluno identificado','__sem_aluno__'));
+  $('filtro-aluno').value = '';
   $('busca').value = ''; mudarVisao('pendentes', false);
   if (focar) $('instituicao').focus();
 }
 
 function mudarVisao(nova, desenhar = true) {
   visao = nova; assinatura = '';
-  for (const id of ['pendentes','historico','alunos']) {
+  for (const id of ['pendentes','historico','alunos','comunicadores']) {
     $('nav-' + id).classList.toggle('selecionado', id === nova);
     if (id === nova) $('nav-' + id).setAttribute('aria-current','page');
     else $('nav-' + id).removeAttribute('aria-current');
   }
   const alunosVisiveis = nova === 'alunos';
-  $('painel-pedidos').hidden = alunosVisiveis;
+  const comunicadoresVisiveis = nova === 'comunicadores';
+  $('painel-comunicadores').hidden = !comunicadoresVisiveis;
+  $('painel-pedidos').hidden = alunosVisiveis || comunicadoresVisiveis;
   $('painel-alunos').hidden = !alunosVisiveis;
-  $('rodape-pedidos').hidden = alunosVisiveis;
+  $('rodape-pedidos').hidden = alunosVisiveis || comunicadoresVisiveis;
   $('pular').textContent = 'Pular para o conteúdo';
   $('resumo-pedidos').hidden = nova !== 'pendentes';
+  if (comunicadoresVisiveis) {
+    $('titulo-pagina').textContent = 'Comunicadores';
+    $('descricao-pagina').textContent = 'Associe cada aparelho ao aluno que o utiliza.';
+    $('aviso-novos').hidden = true;
+    if (desenhar) { atualizarAlunos(); atualizarComunicadores(); }
+    return;
+  }
   if (alunosVisiveis) {
     $('titulo-pagina').textContent = 'Alunos';
     $('descricao-pagina').textContent = 'Consulte os alunos cadastrados e seus perfis de acessibilidade.';
@@ -633,6 +852,11 @@ restaurarSessao();
 $('nav-pendentes').addEventListener('click', () => mudarVisao('pendentes'));
 $('nav-historico').addEventListener('click', () => mudarVisao('historico'));
 $('nav-alunos').addEventListener('click', () => mudarVisao('alunos'));
+$('nav-comunicadores').addEventListener('click', () => mudarVisao('comunicadores'));
+$('atualizar-comunicadores').addEventListener('click', () => { atualizarAlunos(); atualizarComunicadores(); });
+$('vinculo-dispositivo').addEventListener('input', identificarVinculo);
+$('formulario-vinculo').addEventListener('submit', salvarVinculo);
+$('limpar-vinculo').addEventListener('click', () => limparFormularioVinculo());
 $('atualizar-alunos').addEventListener('click', atualizarAlunos);
 $('novo-aluno').addEventListener('click', () => abrirFormularioAluno());
 $('cancelar-aluno').addEventListener('click', () => fecharFormularioAluno());
@@ -651,7 +875,7 @@ $('previa-aluno-foto').addEventListener('error', () => {
 });
 $('formulario-aluno').addEventListener('submit', salvarCadastroAluno);
 
-for (const id of ['dispositivo','filtro-estado']) $(id).addEventListener('change', () => renderizar(true));
+for (const id of ['filtro-aluno','dispositivo','filtro-estado']) $(id).addEventListener('change', () => renderizar(true));
 $('busca').addEventListener('input', () => renderizar(true));
 $('ver-novos').addEventListener('click', () => renderizar(true));
 $('som').addEventListener('click', async () => {
