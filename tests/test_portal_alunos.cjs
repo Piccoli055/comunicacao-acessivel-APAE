@@ -43,8 +43,8 @@ async function portaLivre() {
   page.on('pageerror', erro => erros.push(erro.message));
   page.on('console', msg => { if (msg.type()==='error' && /Content Security Policy/i.test(msg.text())) erros.push(msg.text()); });
   await page.goto(url);
-  await page.locator('#instituicao').fill('51995537839');
-  await page.locator('#usuario').fill('admdev');
+  await page.locator('#instituicao').fill('164275');
+  await page.locator('#usuario').fill('testedev');
   await page.locator('#senha').fill('123456');
   await page.locator('#conectar').click();
   await page.locator('#portal').waitFor({state:'visible'});

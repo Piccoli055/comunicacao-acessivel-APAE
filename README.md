@@ -17,14 +17,14 @@ Abra `http://127.0.0.1:8765` e use:
 
 | Campo | Valor de testes |
 | --- | --- |
-| Instituição | `51995537839` |
-| Usuário | `admdev` |
+| Instituição | `164275` |
+| Usuário | `testedev` |
 | Senha | `123456` |
 | Perfil | ADM Desenvolvedor |
 
-O código de 11 dígitos é um identificador de testes, não um CNPJ validado. O perfil tem acesso a todas as funções atualmente disponíveis no MVP: pedidos de todos os comunicadores, filtros, recebimento, atendimento e histórico. O cadastro de alunos permite salvar nome, foto opcional e perfil de acessibilidade. A aplicação desses perfis às telas do aluno e os vínculos com comunicadores ficam para as próximas etapas.
+O código de 6 dígitos é um identificador de testes, não um CNPJ validado. O perfil tem acesso a todas as funções atualmente disponíveis no MVP: pedidos de todos os comunicadores, filtros, recebimento, atendimento e histórico. O cadastro de alunos permite salvar nome, foto opcional e perfil de acessibilidade. A aplicação desses perfis às telas do aluno e os vínculos com comunicadores ficam para as próximas etapas.
 
-`--demo` cria essa conta somente se ainda não existir uma conta configurada. Não substitui uma conta existente. A conta criada permanece no banco local nas próximas execuções. As credenciais acima são públicas e destinadas apenas à demonstração com dados fictícios.
+`--demo` cria essa conta somente se ainda não existir uma conta configurada. Também atualiza o antigo acesso padrão de testes, revogando suas sessões. Não substitui contas personalizadas. A conta criada permanece no banco local nas próximas execuções. As credenciais acima são públicas e destinadas apenas à demonstração com dados fictícios.
 
 O IP serve para encontrar o servidor. Mudar o IP não muda instituição, usuário ou senha. A sessão expira em oito horas; ao atualizar o navegador, o portal recupera uma sessão ainda válida. Ao sair, a sessão é revogada no servidor.
 

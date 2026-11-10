@@ -238,13 +238,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--porta', type=int, default=8765)
     parser.add_argument('--dados', type=Path, default=ROOT / 'data')
-    parser.add_argument('--demo', action='store_true', help='Cria o perfil ADM Desenvolvedor de testes se ainda não houver uma conta.')
+    parser.add_argument('--demo', action='store_true', help='Cria ou atualiza o acesso padrão de testes; preserva contas personalizadas.')
     args = parser.parse_args()
     servidor, segredo = criar_servidor(('0.0.0.0', args.porta), args.dados, modo_demo=args.demo)
     print(f'Painel neste computador: http://localhost:{args.porta}', flush=True)
     print(f'Credencial dos comunicadores: {segredo}', flush=True)
     if args.demo:
-        print('Modo de demonstração: ADM Desenvolvedor. Instituição 51995537839, usuário admdev.', flush=True)
+        print('Modo de demonstração: ADM Desenvolvedor. Instituição 164275, usuário testedev.', flush=True)
     else:
         print('Acesso ao portal: instituição, usuário e senha configurados localmente.', flush=True)
     try:

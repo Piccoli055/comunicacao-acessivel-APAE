@@ -8,8 +8,8 @@ import sqlite3
 import time
 import unicodedata
 
-CODIGO_DEMO = '51995537839'
-USUARIO_DEMO = 'admdev'
+CODIGO_DEMO = '164275'
+USUARIO_DEMO = 'testedev'
 SENHA_DEMO = '123456'
 ITERACOES = 600_000
 DURACAO_SESSAO = 8 * 60 * 60
@@ -129,9 +129,10 @@ def encerrar_sessao(db, token):
             con.execute('DELETE FROM sessoes WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),))
 
 def preparar_demo(db):
-    """Cria somente a conta de demonstração quando ainda não existe uma conta."""
+    """Cria a conta de testes ou atualiza exclusivamente o antigo acesso padrão."""
     preparar_acesso(db)
     with conectar(db) as con:
-        existe = con.execute('SELECT 1 FROM conta_tutora WHERE id=1').fetchone()
-    if not existe:
+        conta = con.execute('SELECT cnpj,usuario,perfil FROM conta_tutora WHERE id=1').fetchone()
+    legado = conta == ('51995537839', 'admdev', 'admdev')
+    if conta is None or legado:
         configurar_conta(db, CODIGO_DEMO, USUARIO_DEMO, SENHA_DEMO, perfil='admdev')

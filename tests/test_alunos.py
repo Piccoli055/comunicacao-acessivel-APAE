@@ -69,11 +69,11 @@ class EstruturaAlunos(unittest.TestCase):
         return base64.b64encode(saida.getvalue()).decode('ascii')
 
     def test_salvar_reabrir_editar_e_preservar_pedidos(self):
-        aluno = salvar_aluno(self.db, self.dados(), 'admdev')
+        aluno = salvar_aluno(self.db, self.dados(), 'testedev')
         preparar(self.pasta)
         self.assertEqual(listar_alunos(self.db)[0], aluno)
         self.assertTrue(aluno['autorizado_em'])
-        editado = salvar_aluno(self.db, self.dados(id=aluno['id'],versao=aluno['versao'],nome='Outro nome',perfil_acessibilidade='baixa_visao'), 'admdev', editar=True)
+        editado = salvar_aluno(self.db, self.dados(id=aluno['id'],versao=aluno['versao'],nome='Outro nome',perfil_acessibilidade='baixa_visao'), 'testedev', editar=True)
         self.assertEqual(editado['nome'], 'Outro nome')
         self.assertEqual(editado['versao'], aluno['versao']+1)
         self.assertEqual(editado['autorizado_em'], aluno['autorizado_em'])
@@ -82,24 +82,24 @@ class EstruturaAlunos(unittest.TestCase):
         for campos in ({'autorizado':False},{'autorizado':'sim'},{'nome':'   '},{'nome':'a'*121},{'perfil_acessibilidade':'invalido'}, {'id':'../arquivo'}):
             with self.subTest(campos=campos):
                 with self.assertRaises(ErroCadastro):
-                    salvar_aluno(self.db, self.dados(**campos), 'admdev')
+                    salvar_aluno(self.db, self.dados(**campos), 'testedev')
         self.assertEqual(listar_alunos(self.db), [])
 
     def test_foto_normalizada_substituida_preservada_e_removida(self):
-        aluno = salvar_aluno(self.db, self.dados(foto=self.imagem()), 'admdev')
+        aluno = salvar_aluno(self.db, self.dados(foto=self.imagem()), 'testedev')
         token = aluno['foto_url'].split('/')[-1]
         foto = ler_foto(self.db, token)
         with Image.open(BytesIO(foto)) as imagem:
             self.assertEqual(imagem.format, 'JPEG')
             self.assertLessEqual(max(imagem.size),512)
             self.assertFalse(imagem.getexif())
-        aluno = salvar_aluno(self.db, self.dados(id=aluno['id'],versao=aluno['versao'],nome='Editado'), 'admdev', editar=True)
+        aluno = salvar_aluno(self.db, self.dados(id=aluno['id'],versao=aluno['versao'],nome='Editado'), 'testedev', editar=True)
         self.assertEqual(aluno['foto_url'], '/api/fotos/'+token)
-        aluno = salvar_aluno(self.db, self.dados(id=aluno['id'],versao=aluno['versao'],foto=self.imagem('blue')), 'admdev', editar=True)
+        aluno = salvar_aluno(self.db, self.dados(id=aluno['id'],versao=aluno['versao'],foto=self.imagem('blue')), 'testedev', editar=True)
         self.assertNotEqual(aluno['foto_url'], '/api/fotos/'+token)
         self.assertIsNone(ler_foto(self.db, token))
         novo_token = aluno['foto_url'].split('/')[-1]
-        aluno = salvar_aluno(self.db, self.dados(id=aluno['id'],versao=aluno['versao'],foto=None), 'admdev', editar=True)
+        aluno = salvar_aluno(self.db, self.dados(id=aluno['id'],versao=aluno['versao'],foto=None), 'testedev', editar=True)
         self.assertIsNone(aluno['foto_url'])
         self.assertIsNone(ler_foto(self.db, novo_token))
 
@@ -107,18 +107,18 @@ class EstruturaAlunos(unittest.TestCase):
         for foto in ('nao-e-base64', base64.b64encode(b'<svg>foto falsa</svg>').decode(), self.imagem(formato='GIF'), 'a' * (4*((LIMITE_FOTO+2)//3)+1), self.imagem(tamanho=(9000,1))):
             with self.subTest(tamanho=len(foto)):
                 with self.assertRaises(ErroCadastro):
-                    salvar_aluno(self.db,self.dados(foto=foto),'admdev')
+                    salvar_aluno(self.db,self.dados(foto=foto),'testedev')
         self.assertEqual(listar_alunos(self.db), [])
         self.assertIsNone(ler_foto(self.db,'../../arquivo'))
 
     def test_foto_invalida_na_edicao_preserva_cadastro_e_foto(self):
-        aluno = salvar_aluno(self.db,self.dados(foto=self.imagem()),'admdev')
+        aluno = salvar_aluno(self.db,self.dados(foto=self.imagem()),'testedev')
         with self.assertRaises(ErroCadastro):
-            salvar_aluno(self.db,self.dados(id=aluno['id'],versao=aluno['versao'],nome='Não salvar',foto='invalida'),'admdev',editar=True)
+            salvar_aluno(self.db,self.dados(id=aluno['id'],versao=aluno['versao'],nome='Não salvar',foto='invalida'),'testedev',editar=True)
         self.assertEqual(listar_alunos(self.db)[0],aluno)
 
     def test_desativacao_reativacao_e_exclusao_exigem_confirmacao(self):
-        aluno = salvar_aluno(self.db,self.dados(foto=self.imagem()),'admdev')
+        aluno = salvar_aluno(self.db,self.dados(foto=self.imagem()),'testedev')
         with self.assertRaises(ErroCadastro):
             alterar_cadastro(self.db,dict(id=aluno['id'],versao=aluno['versao'],ativo=False))
         inativo = alterar_cadastro(self.db,dict(id=aluno['id'],versao=aluno['versao'],ativo=False,confirmado=True))
@@ -133,9 +133,9 @@ class EstruturaAlunos(unittest.TestCase):
         self.assertIsNone(ler_foto(self.db,aluno['foto_url'].split('/')[-1]))
 
     def test_concorrencia_nao_sobrescreve_edicao_mais_recente(self):
-        aluno = salvar_aluno(self.db,self.dados(),'admdev')
-        salvar_aluno(self.db,self.dados(id=aluno['id'],versao=1,nome='Nome atualizado'),'admdev',editar=True)
-        for operacao in (lambda: salvar_aluno(self.db,self.dados(id=aluno['id'],versao=1,nome='Versão antiga'),'admdev',editar=True),
+        aluno = salvar_aluno(self.db,self.dados(),'testedev')
+        salvar_aluno(self.db,self.dados(id=aluno['id'],versao=1,nome='Nome atualizado'),'testedev',editar=True)
+        for operacao in (lambda: salvar_aluno(self.db,self.dados(id=aluno['id'],versao=1,nome='Versão antiga'),'testedev',editar=True),
                          lambda: alterar_cadastro(self.db,dict(id=aluno['id'],versao=1,ativo=False,confirmado=True)),
                          lambda: alterar_cadastro(self.db,dict(id=aluno['id'],versao=1,confirmacao=aluno['nome']),excluir=True)):
             with self.assertRaises(ErroCadastro) as erro:
@@ -145,8 +145,8 @@ class EstruturaAlunos(unittest.TestCase):
 
     def test_reenvio_cadastro_nao_duplica(self):
         dados = self.dados(id='a'*32)
-        aluno = salvar_aluno(self.db,dados,'admdev')
-        self.assertEqual(salvar_aluno(self.db,dados,'admdev'),aluno)
+        aluno = salvar_aluno(self.db,dados,'testedev')
+        self.assertEqual(salvar_aluno(self.db,dados,'testedev'),aluno)
         self.assertEqual(len(listar_alunos(self.db)),1)
 
 

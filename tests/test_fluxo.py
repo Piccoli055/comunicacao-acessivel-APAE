@@ -25,7 +25,7 @@ class Fluxo(unittest.TestCase):
         self.thread.start()
         self.cookies = CookieJar()
         self.navegador = build_opener(HTTPCookieProcessor(self.cookies))
-        self.perfil = self.api('/api/login', {'instituicao':'51995537839', 'usuario':'admdev', 'senha':'123456'})
+        self.perfil = self.api('/api/login', {'instituicao':'164275', 'usuario':'testedev', 'senha':'123456'})
 
     def tearDown(self):
         self.server.shutdown()
@@ -218,8 +218,8 @@ class Fluxo(unittest.TestCase):
 
     def test_login_demo_retorna_perfil_e_sessao(self):
         self.assertEqual(self.perfil['perfil'], 'admdev')
-        self.assertEqual(self.perfil['usuario'], 'admdev')
-        self.assertEqual(self.api('/api/sessao')['cnpj'], '51995537839')
+        self.assertEqual(self.perfil['usuario'], 'testedev')
+        self.assertEqual(self.api('/api/sessao')['cnpj'], '164275')
         self.assertEqual(self.api('/api/config')['retencao_horas'], 48)
         cookie = next(iter(self.cookies))
         self.assertTrue(cookie.has_nonstandard_attr('HttpOnly'))
@@ -231,7 +231,7 @@ class Fluxo(unittest.TestCase):
         self.assertNotEqual(token_hash, cookie.value)
 
     def test_credenciais_erradas_nao_identificam_campo(self):
-        base = {'instituicao':'51995537839', 'usuario':'admdev', 'senha':'123456'}
+        base = {'instituicao':'164275', 'usuario':'testedev', 'senha':'123456'}
         for campo in base:
             dados = dict(base)
             dados[campo] = 'incorreto'
@@ -262,13 +262,13 @@ class Fluxo(unittest.TestCase):
         self.assertEqual(e.exception.code, 401)
 
     def test_limite_de_tentativas(self):
-        dados = {'instituicao':'51995537839','usuario':'admdev','senha':'errada'}
+        dados = {'instituicao':'164275','usuario':'testedev','senha':'errada'}
         for i in range(5):
             with self.assertRaises(HTTPError) as e:
                 self.api('/api/login', dados, codigo='sem-sessao')
             self.assertEqual(e.exception.code, 429 if i == 4 else 401)
         with self.assertRaises(HTTPError) as e:
-            self.api('/api/login', {'instituicao':'51995537839','usuario':'admdev','senha':'123456'}, codigo='sem-sessao')
+            self.api('/api/login', {'instituicao':'164275','usuario':'testedev','senha':'123456'}, codigo='sem-sessao')
         self.assertEqual(e.exception.code, 429)
 
     def test_demo_nao_substitui_conta_existente_e_redefinir_revoga_sessoes(self):
@@ -279,6 +279,23 @@ class Fluxo(unittest.TestCase):
         perfil = self.api('/api/login', {'instituicao':'12.345.678/0001-90','usuario':'tutora','senha':'senha-de-teste-2026'})
         self.assertEqual(perfil['perfil'], 'tutora')
         self.assertEqual(perfil['cnpj'], '12345678000190')
+
+    def test_demo_migra_antigo_acesso_sem_apagar_dados(self):
+        from acesso import consultar_sessao
+        configurar_conta(self.pasta/'pedidos.sqlite3', '12345678000190', 'admdev', '123456', perfil='admdev')
+        with closing(sqlite3.connect(self.pasta/'pedidos.sqlite3')) as con, con:
+            con.execute("UPDATE conta_tutora SET cnpj='51995537839'")
+        token = 'sessao-legada-para-teste-de-migracao'
+        import hashlib, time
+        with closing(sqlite3.connect(self.pasta/'pedidos.sqlite3')) as con, con:
+            con.execute("INSERT INTO alunos (id,nome) VALUES ('preservado','Aluno fictício')")
+            con.execute('INSERT INTO sessoes VALUES (?,?)', (hashlib.sha256(token.encode()).hexdigest(),time.time()+3600))
+        self.assertIsNotNone(consultar_sessao(self.pasta/'pedidos.sqlite3',token))
+        preparar_demo(self.pasta/'pedidos.sqlite3')
+        self.assertIsNone(consultar_sessao(self.pasta/'pedidos.sqlite3',token))
+        perfil = self.api('/api/login',{'instituicao':'164275','usuario':'testedev','senha':'123456'})
+        self.assertEqual(perfil['usuario'],'testedev')
+        self.assertEqual(self.api('/api/alunos')[0]['nome'],'Aluno fictício')
 
     def test_post_de_navegador_exige_cabecalho_do_portal(self):
         req = Request(self.url+'/api/logout', data=b'{}', headers={'Content-Type':'application/json'})
