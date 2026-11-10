@@ -43,6 +43,57 @@ class Fluxo(unittest.TestCase):
         with cliente.open(req, timeout=8) as r:
             return json.load(r)
 
+    def test_listagem_alunos_vazia_e_com_cadastros_ativos_e_inativos(self):
+        self.assertEqual(self.api('/api/alunos'), [])
+        with closing(sqlite3.connect(self.pasta/'pedidos.sqlite3')) as con, con:
+            con.execute("INSERT INTO alunos (id,nome,perfil_acessibilidade,ativo,foto) VALUES ('b','Bruno','motora',0,'caminho-interno.jpg')")
+            con.execute("INSERT INTO alunos (id,nome) VALUES ('a','Ana')")
+        self.assertEqual(self.api('/api/alunos'), [
+            {'id':'a','nome':'Ana','perfil_acessibilidade':'padrao','ativo':1,'autorizado_em':None,'versao':1,'foto_url':None},
+            {'id':'b','nome':'Bruno','perfil_acessibilidade':'motora','ativo':0,'autorizado_em':None,'versao':1,'foto_url':None},
+        ])
+
+    def test_listagem_alunos_exige_sessao_e_rejeita_credencial_dispositivo(self):
+        for codigo in ('errado', self.codigo):
+            with self.assertRaises(HTTPError) as e:
+                self.api('/api/alunos', codigo=codigo)
+            self.assertEqual(e.exception.code, 401)
+        self.api('/api/logout', {})
+        with self.assertRaises(HTTPError) as e:
+            self.api('/api/alunos')
+        self.assertEqual(e.exception.code, 401)
+
+    def test_cadastro_foto_edicao_e_exclusao_por_http(self):
+        from PIL import Image
+        from io import BytesIO
+        import base64
+        saida = BytesIO()
+        Image.new('RGB',(30,30),'red').save(saida,format='PNG')
+        dados = {'nome':'Aluno fictício','autorizado':True,'foto':base64.b64encode(saida.getvalue()).decode()}
+        aluno = self.api('/api/alunos',dados)
+        req = Request(self.url+aluno['foto_url'])
+        with self.navegador.open(req) as foto:
+            self.assertEqual(foto.headers['Content-Type'],'image/jpeg')
+            self.assertEqual(foto.headers['Cache-Control'],'no-store')
+            self.assertEqual(Image.open(BytesIO(foto.read())).format,'JPEG')
+        with self.assertRaises(HTTPError) as erro:
+            urlopen(Request(self.url+aluno['foto_url']))
+        self.assertEqual(erro.exception.code,401)
+        with self.assertRaises(HTTPError) as erro:
+            self.api(aluno['foto_url'],codigo=self.codigo)
+        self.assertEqual(erro.exception.code,401)
+        for rota, corpo in [('/api/alunos',dados),('/api/alunos/editar',dict(dados,id=aluno['id'],versao=1)),('/api/alunos/situacao',{'id':aluno['id'],'versao':1,'ativo':False,'confirmado':True}),('/api/alunos/excluir',{'id':aluno['id'],'versao':1,'confirmacao':aluno['nome']})]:
+            with self.assertRaises(HTTPError) as erro:
+                self.api(rota,corpo,codigo=self.codigo)
+            self.assertEqual(erro.exception.code,401)
+        editado = self.api('/api/alunos/editar',{'id':aluno['id'],'versao':1,'nome':'Nome editado','autorizado':True})
+        self.assertEqual(editado['nome'],'Nome editado')
+        self.api('/api/alunos/excluir',{'id':aluno['id'],'versao':editado['versao'],'confirmacao':editado['nome']})
+        self.assertEqual(self.api('/api/alunos'),[])
+        with self.assertRaises(HTTPError) as erro:
+            self.navegador.open(req)
+        self.assertEqual(erro.exception.code,404)
+
     def test_acesso_e_validacao(self):
         with self.assertRaises(HTTPError) as e:
             self.api('/api/pedidos', codigo='errado')

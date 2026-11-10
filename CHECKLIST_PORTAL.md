@@ -35,10 +35,23 @@
 - [x] Gerador manual de pedidos fictícios para o ensaio.
 - [x] Testes automáticos de autenticação e pedidos implementados.
 
+## Cadastro de alunos — execução por etapas
+
+- [x] Criar tabela de alunos no SQLite, com identificação, nome, referência da foto, perfil de acessibilidade, situação ativa e datas.
+- [x] Criar listagem de alunos: menu, nome, perfil, situação, carregamento, estado vazio e atualização manual; API protegida por sessão.
+- [x] Criar formulário com nome obrigatório, foto opcional, prévia e seleção do perfil de acessibilidade.
+- [x] Implementar upload, substituição e remoção da foto; validar tamanho, formato real, integridade e dimensões no servidor; remover metadados e proteger a consulta por sessão.
+- [x] Salvar e editar os dados pela interface, preservando cadastros após reiniciar e evitando sobrescrever edições concorrentes.
+- [x] Implementar desativação e reativação com confirmação; exclusão definitiva exige digitar o nome.
+- [x] Exibir a quantidade de alunos no painel, incluindo ativos e inativos.
+- [x] Definir os dados mínimos, registrar a confirmação da autorização institucional com data e usuário e documentar retenção, exclusão e tratamento de cópias externas.
+
+O perfil inicial é padrão; os demais valores representam opções de interface, sem registrar diagnóstico clínico. A tabela não cria alunos automaticamente. A confirmação no formulário não substitui a documentação de autorização mantida pela instituição. Fotos e cadastros foram testados no Edge com banco temporário e dados fictícios, em larguras de computador e celular.
+
 ## Próximos desenvolvimentos
 
-- [ ] Cadastro, edição e desativação de alunos.
-- [ ] Preferências de acessibilidade e mensagens por aluno.
+- [x] Cadastro, edição e desativação de alunos.
+- [ ] Aplicar os perfis às interfaces do aluno e personalizar mensagens; seleção do perfil no cadastro já disponível.
 - [ ] Vínculo entre aluno e comunicador.
 - [ ] Identificação do aluno nos pedidos.
 

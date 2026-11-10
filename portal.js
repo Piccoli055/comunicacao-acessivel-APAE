@@ -4,6 +4,10 @@ const $ = id => document.getElementById(id);
 let conectado = false, sessao = 0, pedidos = [], vistos = new Set(), primeiraCarga = true;
 let visao = 'pendentes', assinatura = '', consulta = null, somAtivo = false, audio = null;
 let toastTimer = null;
+let alunos = [], alunosCarregados = false, consultaAlunos = null;
+let fotoAlunoURL = null, alunoEdicao = null, novoAlunoId = null, removerFoto = false;
+let geracaoFormulario = 0, salvandoAluno = false, ultimaConsultaAlunos = 0;
+const perfisAlunos = {padrao: 'Padrão', tea: 'TEA', motora: 'Acessibilidade motora', baixa_visao: 'Baixa visão', intelectual: 'Acessibilidade cognitiva'};
 const requisicoes = new Set();
 const nomes = {novo: 'Novo', recebido: 'Recebido', atendido: 'Atendido'};
 
@@ -14,7 +18,7 @@ class FalhaAPI extends Error {
 async function api(rota, dados) {
   const controller = new AbortController();
   requisicoes.add(controller);
-  const timeout = setTimeout(() => controller.abort(), 6000);
+  const timeout = setTimeout(() => controller.abort(), rota.startsWith('/api/alunos') ? 15000 : 6000);
   try {
     const resposta = await fetch(rota, {
       method: dados ? 'POST' : 'GET',
@@ -95,6 +99,7 @@ function registroHistorico(pedido) {
 
 function renderizar(forcar = false) {
   resumo();
+  if (visao === 'alunos') return;
   const busca = $('busca').value.trim().toLocaleLowerCase('pt-BR');
   const comunicador = $('dispositivo').value, situacao = $('filtro-estado').value;
   let lista = pedidos.filter(p => (visao === 'historico' || p.estado !== 'atendido')
@@ -158,6 +163,268 @@ function renderizar(forcar = false) {
   }
 }
 
+function atualizarPreviaAluno() {
+  const nome = $('aluno-nome').value.trim();
+  $('aluno-nome').setCustomValidity(nome ? '' : 'Informe o nome do aluno.');
+  $('previa-aluno-nome').textContent = nome || 'Nome do aluno';
+  $('previa-aluno-iniciais').textContent = nome ? nome.split(/\s+/u).slice(0, 2).map(parte => Array.from(parte)[0]).join('').toLocaleUpperCase('pt-BR') : '?';
+  $('previa-aluno-perfil').textContent = perfisAlunos[$('aluno-perfil').value] || 'Padrão';
+  $('resultado-formulario-aluno').textContent = '';
+}
+
+function limparFotoAluno(limparCampo = true) {
+  $('previa-aluno-foto').hidden = true;
+  $('previa-aluno-foto').removeAttribute('src');
+  if (fotoAlunoURL) URL.revokeObjectURL(fotoAlunoURL);
+  fotoAlunoURL = null;
+  if (limparCampo) $('aluno-foto').value = '';
+  $('aluno-foto').setCustomValidity('');
+  $('previa-aluno-iniciais').hidden = false;
+  $('remover-foto-aluno').hidden = true;
+  $('erro-aluno-foto').hidden = true;
+  $('erro-aluno-foto').textContent = '';
+  $('aluno-foto').removeAttribute('aria-invalid');
+  $('resultado-formulario-aluno').textContent = '';
+  removerFoto = true;
+}
+
+function selecionarFotoAluno() {
+  const arquivo = $('aluno-foto').files[0];
+  limparFotoAluno(false);
+  if (!arquivo) return;
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(arquivo.type) || arquivo.size <= 0 || arquivo.size > 5 * 1024 * 1024) {
+    $('erro-aluno-foto').textContent = 'Selecione uma foto JPEG, PNG ou WebP de até 5 MB.';
+    $('erro-aluno-foto').hidden = false;
+    $('aluno-foto').setAttribute('aria-invalid', 'true');
+    $('aluno-foto').setCustomValidity('Selecione uma foto válida ou remova a seleção.');
+    $('remover-foto-aluno').hidden = false;
+    return;
+  }
+  // A prévia local é liberada ao trocar de imagem, cancelar ou encerrar a sessão.
+  removerFoto = false;
+  fotoAlunoURL = URL.createObjectURL(arquivo);
+  $('previa-aluno-foto').src = fotoAlunoURL;
+  $('previa-aluno-foto').hidden = false;
+  $('previa-aluno-iniciais').hidden = true;
+  $('remover-foto-aluno').hidden = false;
+}
+
+function fecharFormularioAluno(focar = true) {
+  geracaoFormulario++; salvandoAluno = false;
+  limparFotoAluno();
+  alunoEdicao = null; novoAlunoId = null; removerFoto = false;
+  $('campos-cadastro-aluno').disabled = false;
+  $('salvar-aluno').textContent = 'Salvar cadastro';
+  $('erro-formulario-aluno').textContent = ''; $('erro-formulario-aluno').hidden = true;
+  $('formulario-aluno').reset();
+  $('aluno-nome').setCustomValidity('');
+  $('aluno-perfil').value = 'padrao';
+  atualizarPreviaAluno();
+  $('formulario-aluno').hidden = true;
+  $('novo-aluno').disabled = false;
+  $('novo-aluno').setAttribute('aria-expanded', 'false');
+  if (focar) $('novo-aluno').focus();
+}
+
+function abrirFormularioAluno(aluno = null) {
+  if (!conectado || salvandoAluno) return;
+  fecharFormularioAluno(false);
+  alunoEdicao = aluno;
+  novoAlunoId = Array.from(crypto.getRandomValues(new Uint8Array(16)), n => n.toString(16).padStart(2, '0')).join('');
+  $('titulo-formulario-aluno').textContent = aluno ? 'Editar aluno' : 'Novo aluno';
+  $('salvar-aluno').textContent = aluno ? 'Salvar alterações' : 'Salvar cadastro';
+  $('aluno-nome').value = aluno ? aluno.nome : '';
+  $('aluno-perfil').value = aluno ? aluno.perfil_acessibilidade : 'padrao';
+  $('aluno-autorizado').checked = Boolean(aluno && aluno.autorizado_em);
+  $('previa-aluno-situacao').textContent = aluno ? (aluno.ativo ? 'Ativo' : 'Inativo') : 'Ativo ao cadastrar';
+  $('previa-aluno-situacao').className = 'selo ' + (aluno && !aluno.ativo ? 'inativo' : 'atendido');
+  removerFoto = false;
+  if (aluno && aluno.foto_url) {
+    $('previa-aluno-foto').src = aluno.foto_url;
+    $('previa-aluno-foto').hidden = false;
+    $('previa-aluno-iniciais').hidden = true;
+    $('remover-foto-aluno').hidden = false;
+  }
+  $('formulario-aluno').hidden = false;
+  $('novo-aluno').disabled = true;
+  $('novo-aluno').setAttribute('aria-expanded', 'true');
+  atualizarPreviaAluno();
+  $('aluno-nome').focus();
+}
+
+function renderizarAlunos() {
+  const fragmento = document.createDocumentFragment();
+  for (const aluno of alunos) {
+    const linha = elemento('li', 'aluno');
+    const avatar = elemento('span', 'aluno-avatar', aluno.nome.trim().split(/\s+/u).slice(0, 2).map(parte => Array.from(parte)[0]).join('').toLocaleUpperCase('pt-BR'));
+    avatar.setAttribute('aria-hidden', 'true');
+    if (aluno.foto_url) {
+      const foto = elemento('img', 'foto-aluno');
+      foto.alt = ''; foto.src = aluno.foto_url;
+      foto.addEventListener('error', () => { foto.remove(); });
+      avatar.append(foto);
+    }
+    const dados = elemento('div', 'aluno-dados');
+    dados.append(elemento('h2', '', aluno.nome), elemento('p', '', 'Perfil de acessibilidade: ' + (perfisAlunos[aluno.perfil_acessibilidade] || 'Padrão')));
+    const situacao = elemento('span', 'selo ' + (aluno.ativo ? 'atendido' : 'inativo'), aluno.ativo ? 'Ativo' : 'Inativo');
+    const acoes = elemento('div', 'acoes-cadastro');
+    for (const [texto, acao] of [
+      ['Editar', () => abrirFormularioAluno(aluno)],
+      [aluno.ativo ? 'Desativar' : 'Reativar', botao => mudarSituacaoAluno(aluno, botao)],
+      ['Excluir', botao => excluirAluno(aluno, botao)],
+    ]) {
+      const botao = elemento('button', 'botao-texto', texto);
+      botao.type = 'button';
+      botao.setAttribute('aria-label', texto + ' aluno: ' + aluno.nome);
+      botao.addEventListener('click', () => acao(botao));
+      acoes.append(botao);
+    }
+    linha.append(avatar, dados, situacao, acoes);
+    fragmento.append(linha);
+  }
+  $('lista-alunos').replaceChildren(fragmento);
+  $('quantidade-alunos').textContent = alunos.length + (alunos.length === 1 ? ' aluno cadastrado' : ' alunos cadastrados');
+  $('vazio-alunos').hidden = alunos.length !== 0;
+  $('total-alunos').textContent = alunos.length;
+}
+
+async function atualizarAlunos() {
+  if (!conectado) return;
+  if (consultaAlunos) return consultaAlunos;
+  const atual = sessao;
+  $('lista-alunos').setAttribute('aria-busy', 'true');
+  $('atualizar-alunos').disabled = true;
+  $('erro-alunos').hidden = true;
+  if (!alunosCarregados) {
+    $('quantidade-alunos').textContent = 'Carregando alunos…';
+    $('vazio-alunos').hidden = true;
+  }
+  consultaAlunos = (async () => {
+    try {
+      const lista = await api('/api/alunos');
+      if (atual !== sessao || !conectado) return;
+      alunos = lista;
+      alunosCarregados = true;
+      ultimaConsultaAlunos = Date.now();
+      renderizarAlunos();
+    } catch (erro) {
+      if (atual !== sessao || !conectado) return;
+      if (erro.status === 401) {
+        limparSessao(false);
+        $('erro').textContent = 'Sua sessão terminou. Entre novamente.';
+        $('senha').focus();
+      } else {
+        $('erro-alunos').textContent = erro.message + (alunosCarregados ? ' A lista anterior continua visível.' : ' Use Atualizar alunos para tentar novamente.');
+        $('erro-alunos').hidden = false;
+        if (!alunosCarregados) $('quantidade-alunos').textContent = 'Lista indisponível';
+      }
+    } finally {
+      if (atual === sessao) {
+        $('lista-alunos').setAttribute('aria-busy', 'false');
+        $('atualizar-alunos').disabled = false;
+      }
+    }
+  })();
+  const operacao = consultaAlunos;
+  await operacao;
+  if (consultaAlunos === operacao) consultaAlunos = null;
+}
+
+function tratarErroCadastro(erro) {
+  if (erro.status === 401) {
+    limparSessao(false);
+    $('erro').textContent = 'Sua sessão terminou. Entre novamente.';
+    $('senha').focus();
+  } else {
+    $('erro-formulario-aluno').textContent = erro.message;
+    $('erro-formulario-aluno').hidden = false;
+  }
+}
+
+function lerFotoSelecionada(arquivo) {
+  return new Promise((resolve, reject) => {
+    const leitor = new FileReader();
+    leitor.onload = () => resolve(String(leitor.result).split(',')[1]);
+    leitor.onerror = () => reject(new FalhaAPI('Não foi possível ler a foto. Selecione outra imagem.'));
+    leitor.onabort = () => reject(new FalhaAPI('Leitura da foto cancelada.'));
+    leitor.readAsDataURL(arquivo);
+  });
+}
+
+async function salvarCadastroAluno(evento) {
+  evento.preventDefault();
+  if (!conectado || salvandoAluno) return;
+  atualizarPreviaAluno();
+  if (!$('formulario-aluno').reportValidity()) return;
+  const atual = sessao, geracao = geracaoFormulario;
+  const dados = {id: alunoEdicao ? alunoEdicao.id : novoAlunoId, nome: $('aluno-nome').value.trim(),
+    perfil_acessibilidade: $('aluno-perfil').value, autorizado: $('aluno-autorizado').checked};
+  const editando = Boolean(alunoEdicao);
+  if (editando) dados.versao = alunoEdicao.versao;
+  const arquivo = $('aluno-foto').files[0];
+  if (removerFoto) dados.foto = null;
+  salvandoAluno = true;
+  $('campos-cadastro-aluno').disabled = true;
+  $('salvar-aluno').textContent = 'Salvando…';
+  $('erro-formulario-aluno').hidden = true;
+  let salvo = false;
+  try {
+    if (arquivo && !removerFoto) dados.foto = await lerFotoSelecionada(arquivo);
+    if (atual !== sessao || geracao !== geracaoFormulario || !conectado) return;
+    await api(editando ? '/api/alunos/editar' : '/api/alunos', dados);
+    if (atual !== sessao || geracao !== geracaoFormulario || !conectado) return;
+    salvo = true;
+    fecharFormularioAluno();
+    if (consultaAlunos) await consultaAlunos;
+    if (atual !== sessao || !conectado) return;
+    await atualizarAlunos();
+    if (atual === sessao && conectado) avisar(editando ? 'Cadastro atualizado.' : 'Aluno cadastrado.');
+  } catch (erro) {
+    if (atual === sessao && geracao === geracaoFormulario && conectado) tratarErroCadastro(erro);
+  } finally {
+    if (!salvo && atual === sessao && geracao === geracaoFormulario) {
+      salvandoAluno = false;
+      $('campos-cadastro-aluno').disabled = false;
+      $('salvar-aluno').textContent = editando ? 'Salvar alterações' : 'Salvar cadastro';
+    }
+  }
+}
+
+async function executarAcaoAluno(rota, dados, botao, mensagem) {
+  const atual = sessao;
+  botao.disabled = true;
+  try {
+    await api(rota, dados);
+    if (atual !== sessao || !conectado) return;
+    if (alunoEdicao && alunoEdicao.id === dados.id) fecharFormularioAluno(false);
+    if (consultaAlunos) await consultaAlunos;
+    if (atual !== sessao || !conectado) return;
+    await atualizarAlunos();
+    if (atual === sessao && conectado) {
+      avisar(mensagem);
+      $('quantidade-alunos').setAttribute('tabindex', '-1');
+      $('quantidade-alunos').focus({preventScroll:true});
+    }
+  } catch (erro) {
+    if (atual !== sessao || !conectado) return;
+    if (erro.status === 401) tratarErroCadastro(erro);
+    else { avisar(erro.message); if (erro.status === 409 || erro.status === 404) await atualizarAlunos(); }
+  } finally { if (botao.isConnected) botao.disabled = false; }
+}
+
+function mudarSituacaoAluno(aluno, botao) {
+  const acao = aluno.ativo ? 'Desativar' : 'Reativar';
+  if (!window.confirm(acao + ' o cadastro de ' + aluno.nome + '?' + (aluno.ativo ? ' Os dados e a foto serão mantidos para consulta.' : ''))) return;
+  return executarAcaoAluno('/api/alunos/situacao', {id:aluno.id,versao:aluno.versao,ativo:!aluno.ativo,confirmado:true}, botao, 'Situação do aluno atualizada.');
+}
+
+function excluirAluno(aluno, botao) {
+  const confirmacao = window.prompt('Excluir definitivamente o cadastro e a foto de ' + aluno.nome + '? Esta ação não pode ser desfeita. Para confirmar, digite o nome do aluno:');
+  if (confirmacao === null) return;
+  if (confirmacao !== aluno.nome) { avisar('Nome diferente. Nenhum cadastro foi excluído.'); return; }
+  return executarAcaoAluno('/api/alunos/excluir', {id:aluno.id,versao:aluno.versao,confirmacao}, botao, 'Cadastro e foto excluídos.');
+}
+
 function aplicarPedidos(lista) {
   const novos = primeiraCarga ? [] : lista.filter(p => !vistos.has(p.id) && p.estado === 'novo');
   pedidos = lista;
@@ -174,6 +441,7 @@ function aplicarPedidos(lista) {
 async function atualizar() {
   if (!conectado) return;
   if (consulta) return consulta;
+  if (Date.now() - ultimaConsultaAlunos > 15000 && !consultaAlunos) atualizarAlunos();
   const atual = sessao;
   consulta = (async () => {
     try {
@@ -253,6 +521,14 @@ function limparSessao(focar = true) {
   sessao++; conectado = false; consulta = null;
   requisicoes.forEach(r => r.abort()); requisicoes.clear();
   pedidos = []; vistos.clear(); primeiraCarga = true; assinatura = '';
+  alunos = []; alunosCarregados = false; consultaAlunos = null; ultimaConsultaAlunos = 0;
+  $('total-alunos').textContent = '—';
+  fecharFormularioAluno(false);
+  $('lista-alunos').replaceChildren();
+  $('lista-alunos').setAttribute('aria-busy', 'false');
+  $('quantidade-alunos').textContent = '';
+  $('erro-alunos').textContent = ''; $('erro-alunos').hidden = true;
+  $('vazio-alunos').hidden = true; $('atualizar-alunos').disabled = false;
   somAtivo = false; atualizarSom();
   if (audio) { audio.close().catch(() => {}); audio = null; }
   clearTimeout(toastTimer);
@@ -272,13 +548,25 @@ function limparSessao(focar = true) {
 
 function mudarVisao(nova, desenhar = true) {
   visao = nova; assinatura = '';
-  for (const id of ['pendentes','historico']) {
+  for (const id of ['pendentes','historico','alunos']) {
     $('nav-' + id).classList.toggle('selecionado', id === nova);
     if (id === nova) $('nav-' + id).setAttribute('aria-current','page');
     else $('nav-' + id).removeAttribute('aria-current');
   }
+  const alunosVisiveis = nova === 'alunos';
+  $('painel-pedidos').hidden = alunosVisiveis;
+  $('painel-alunos').hidden = !alunosVisiveis;
+  $('rodape-pedidos').hidden = alunosVisiveis;
+  $('pular').textContent = 'Pular para o conteúdo';
+  $('resumo-pedidos').hidden = nova !== 'pendentes';
+  if (alunosVisiveis) {
+    $('titulo-pagina').textContent = 'Alunos';
+    $('descricao-pagina').textContent = 'Consulte os alunos cadastrados e seus perfis de acessibilidade.';
+    $('aviso-novos').hidden = true;
+    if (desenhar) atualizarAlunos();
+    return;
+  }
   $('titulo-pagina').textContent = nova === 'pendentes' ? 'Pedidos pendentes' : 'Histórico de chamados';
-  $('resumo-pedidos').hidden = nova === 'historico';
   $('pedidos').classList.toggle('historico', nova === 'historico');
   $('cabecalho-historico').hidden = nova !== 'historico';
   $('descricao-pagina').textContent = nova === 'pendentes' ? 'Acompanhe o que precisa da sua atenção.' : 'Consulte e filtre os chamados. Os atendidos permanecem por 48 horas após o atendimento.';
@@ -297,6 +585,7 @@ function abrirPortal(perfil, lista) {
   $('perfil-usuario').textContent = perfil.usuario + (perfil.perfil === 'admdev' ? ' · ADM Desenvolvedor' : ' · Tutora');
   $('pedidos').setAttribute('aria-busy', 'true');
   aplicarPedidos(lista);
+  atualizarAlunos();
   $('conteudo').focus();
 }
 $('acesso').addEventListener('submit', async evento => {
@@ -343,6 +632,25 @@ async function restaurarSessao() {
 restaurarSessao();
 $('nav-pendentes').addEventListener('click', () => mudarVisao('pendentes'));
 $('nav-historico').addEventListener('click', () => mudarVisao('historico'));
+$('nav-alunos').addEventListener('click', () => mudarVisao('alunos'));
+$('atualizar-alunos').addEventListener('click', atualizarAlunos);
+$('novo-aluno').addEventListener('click', () => abrirFormularioAluno());
+$('cancelar-aluno').addEventListener('click', () => fecharFormularioAluno());
+$('aluno-nome').addEventListener('input', atualizarPreviaAluno);
+$('aluno-perfil').addEventListener('change', atualizarPreviaAluno);
+$('aluno-foto').addEventListener('change', selecionarFotoAluno);
+$('remover-foto-aluno').addEventListener('click', () => { limparFotoAluno(); $('aluno-foto').focus(); });
+$('previa-aluno-foto').addEventListener('error', () => {
+  if (!fotoAlunoURL) return;
+  limparFotoAluno();
+  $('erro-aluno-foto').textContent = 'Não foi possível abrir esta imagem. Selecione outra foto.';
+  $('erro-aluno-foto').hidden = false;
+  $('aluno-foto').setAttribute('aria-invalid', 'true');
+  $('aluno-foto').setCustomValidity('Selecione outra foto ou remova a seleção.');
+  $('remover-foto-aluno').hidden = false;
+});
+$('formulario-aluno').addEventListener('submit', salvarCadastroAluno);
+
 for (const id of ['dispositivo','filtro-estado']) $(id).addEventListener('change', () => renderizar(true));
 $('busca').addEventListener('input', () => renderizar(true));
 $('ver-novos').addEventListener('click', () => renderizar(true));

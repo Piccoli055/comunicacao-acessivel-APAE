@@ -7,6 +7,7 @@ Projeto local para Raspberry Pi 3 B+ com tela de 480 × 320 e portal no navegado
 No terminal da pasta `comunicador-mvp`, execute:
 
 ```powershell
+python -m pip install -r requirements.txt
 python servidor.py --demo
 ```
 
@@ -21,7 +22,7 @@ Abra `http://127.0.0.1:8765` e use:
 | Senha | `123456` |
 | Perfil | ADM Desenvolvedor |
 
-O código de 11 dígitos é um identificador de testes, não um CNPJ validado. O perfil tem acesso a todas as funções atualmente disponíveis no MVP: pedidos de todos os comunicadores, filtros, recebimento, atendimento e histórico. Os cadastros de alunos e suas preferências ainda precisam ser implementados.
+O código de 11 dígitos é um identificador de testes, não um CNPJ validado. O perfil tem acesso a todas as funções atualmente disponíveis no MVP: pedidos de todos os comunicadores, filtros, recebimento, atendimento e histórico. O cadastro de alunos permite salvar nome, foto opcional e perfil de acessibilidade. A aplicação desses perfis às telas do aluno e os vínculos com comunicadores ficam para as próximas etapas.
 
 `--demo` cria essa conta somente se ainda não existir uma conta configurada. Não substitui uma conta existente. A conta criada permanece no banco local nas próximas execuções. As credenciais acima são públicas e destinadas apenas à demonstração com dados fictícios.
 
@@ -61,6 +62,23 @@ Ative o aviso sonoro pelo botão do portal. O navegador precisa ficar aberto e o
 
 O portal atualiza a cada dois segundos e reconecta após uma falha. Se houver foco em uma ação da lista, aparece **Atualizar pedidos**, sem interromper a interação. Uma ação só aparece como concluída depois da confirmação do servidor.
 
+## Cadastro de alunos
+
+Abra **Alunos → Cadastrar novo aluno**, informe nome e perfil de acessibilidade e, se necessário, escolha uma foto. Confirme a autorização institucional e clique em **Salvar cadastro**. O perfil é uma preferência de apresentação, sem registro de diagnóstico; as interfaces por perfil ainda não foram implementadas. Não há vínculo com comunicadores nesta etapa.
+
+A listagem permite **Editar**, substituir ou remover a foto, **Desativar**, **Reativar** e **Excluir**. Desativar mantém os dados para consulta. Excluir exige digitar o nome e remove o cadastro e sua foto do banco ativo. O painel conta todos os alunos cadastrados, ativos e inativos, e atualiza a contagem após alterações e periodicamente.
+
+Fotos aceitas: JPEG, PNG e WebP, até 5 MB, 12 megapixels e 8192 pixels por lado, sem animação. O servidor verifica o conteúdo real, decodifica, corrige orientação, reduz para até 512 × 512 e salva JPEG sem os metadados originais. Fotos ficam no SQLite, acessíveis somente por sessão autenticada e com cache desabilitado. A credencial dos comunicadores não permite consultar fotos nem cadastros. A substituição remove a imagem anterior na mesma transação do cadastro.
+
+### Dados, autorização e exclusão
+
+- Dados mantidos: identificação interna, nome de identificação, foto opcional, perfil de apresentação, situação, datas, versão do cadastro e confirmação de autorização (data e usuário). Não são solicitados CPF, endereço, laudo, e-mail ou data de nascimento.
+- A pessoa que cadastra confirma a autorização institucional para o cadastro e a foto. O servidor registra essa confirmação e bloqueia o salvamento sem ela. A instituição mantém a documentação correspondente fora do sistema e define o responsável por autorizar o uso; o checkbox não substitui essa documentação. Na apresentação, utilize cadastros e imagens fictícios.
+- Acesso: a única conta de tutora/ADM desta instalação pode consultar e gerenciar todos os alunos. Ainda não existe separação entre várias instituições ou tutoras.
+- Retenção: cadastros ativos e inativos permanecem até exclusão explícita. A limpeza de 48 horas é exclusiva dos chamados atendidos, sem apagar alunos ou fotos.
+- Retirada da autorização: exclua o cadastro para remover os dados e a foto do banco ativo. Desativar, por si só, não retira esses dados. Nesta etapa os chamados não contêm vínculo com alunos e não são alterados por essa exclusão.
+- Não há backup automático. Uma cópia manual de `data/` contém fotos e dados pessoais; deve ficar restrita à equipe responsável. A exclusão do banco ativo não altera cópias externas. Essas cópias devem ser revisadas ao atender uma exclusão, e dados excluídos não devem ser reintroduzidos ao restaurar uma cópia. A política de backups para implantação ainda precisa ser definida com a instituição.
+
 ## Exclusão em 48 horas
 
 Cada pedido atendido é excluído 48 horas após o atendimento, registrado no campo `atualizado`. Pedidos novos e recebidos permanecem até serem atendidos, independentemente da idade. Repetir a confirmação ou o atendimento não reinicia a contagem. A limpeza ocorre ao iniciar o servidor, consultar ou alterar pedidos e a cada minuto enquanto estiver ligado. Com o servidor desligado, ocorre na próxima inicialização. Não é uma limpeza geral em horário fixo e não apaga a conta de acesso.
@@ -89,11 +107,13 @@ Nos outros:
 python3 comunicador.py --tela-cheia --dispositivo "Comunicador 02" --servidor http://IP_DO_SERVIDOR:8765 --codigo CREDENCIAL_DO_COMUNICADOR
 ```
 
-Use uma identificação diferente por aparelho, com até 80 caracteres. O Raspberry depende de Tkinter e `espeak-ng`/`espeak`; o servidor não exige bibliotecas Python externas. O driver da tela física é configurado separadamente.
+Use uma identificação diferente por aparelho, com até 80 caracteres. O Raspberry depende de Tkinter e `espeak-ng`/`espeak`; o servidor usa Pillow para validar e normalizar fotos (`python -m pip install -r requirements.txt`). O driver da tela física é configurado separadamente.
 
 ## Arquivos principais
 
 - `servidor.py`: API, pedidos, retenção e sessões HTTP.
+- `alunos.py`: cadastros, fotos, autorização, edição e desativação/exclusão.
+- `requirements.txt`: dependência Pillow usada no servidor.
 - `acesso.py`: senha derivada, autenticação, sessão e bloqueio de tentativas.
 - `configurar_acesso.py`: configuração e redefinição local da conta.
 - `tutora.html`, `portal.css` e `portal.js`: telas e funcionamento do portal.
@@ -118,4 +138,5 @@ python -m unittest discover -s tests -v
 
 A suíte verifica login, rejeição de credenciais, expiração e revogação de sessão, limite de tentativas, credenciais separadas dos comunicadores, estados de pedidos, retenção de 48 horas, persistência, migração e reenvio sem duplicação.
 
-Ainda faltam validação visual do novo formulário nesta sessão, celular real, áudio, leitor de tela, Raspberry físico e ensaio na rede da apresentação. O formulário de login não substitui os cadastros de alunos, adaptações e vínculos, que são próximas etapas.
+O cadastro foi ensaiado no Edge em larguras de computador e celular com banco temporário e dados fictícios. Ainda faltam celular real, áudio, leitor de tela, Raspberry físico e ensaio na rede da apresentação. Adaptações das interfaces e vínculos com comunicadores são próximas etapas.
+O ensaio de interface em `tests/test_portal_alunos.cjs` usa Playwright e inicia um servidor com banco temporário próprio, sem alterar os cadastros da instalação. Para executá-lo, disponibilize o pacote Playwright e seu Chromium e use `node tests/test_portal_alunos.cjs`. Opcionalmente, `PYTHON_TEST` seleciona o executável Python e `TEST_BROWSER=msedge` usa o Edge instalado. As capturas ficam em `tmp/`, fora do Git.

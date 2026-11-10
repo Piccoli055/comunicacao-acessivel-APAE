@@ -1,5 +1,6 @@
-"""Serviço local do MVP. Somente biblioteca padrão do Python."""
+"""Serviço local do MVP. Python, SQLite e Pillow para validar fotografias."""
 import argparse
+from alunos import (preparar_alunos, listar_alunos, salvar_aluno, alterar_cadastro, ler_foto, ErroCadastro)
 from contextlib import closing
 import hmac
 from http.cookies import SimpleCookie, CookieError
@@ -46,6 +47,7 @@ def preparar(pasta):
         con.execute('CREATE INDEX IF NOT EXISTS idx_pedidos_recebido ON pedidos(recebido)')
     limpar_expirados(db)
     preparar_acesso(db)
+    preparar_alunos(db)
     return db, segredo.read_text(encoding='utf-8').strip()
 
 
@@ -105,12 +107,36 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                 self.send_header('Content-Type', tipo)
                 self.send_header('Cache-Control', 'no-store')
                 self.send_header('X-Content-Type-Options', 'nosniff')
-                self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
+                self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
                 self.send_header('Content-Length', str(len(corpo)))
                 self.end_headers()
                 self.wfile.write(corpo)
-            elif rota in ('/api/pedidos', '/api/config', '/api/sessao'):
+            elif rota.startswith('/api/fotos/'):
                 if not self.autorizado():
+                    return
+                try:
+                    foto = ler_foto(db, rota.removeprefix('/api/fotos/'))
+                except sqlite3.Error:
+                    self.responder(503, {'erro':'Não foi possível carregar a foto.'})
+                    return
+                if foto is None:
+                    self.responder(404, {'erro':'Foto não encontrada.'})
+                    return
+                self.send_response(200)
+                self.send_header('Content-Type', 'image/jpeg')
+                self.send_header('Cache-Control', 'no-store')
+                self.send_header('X-Content-Type-Options', 'nosniff')
+                self.send_header('Content-Length', str(len(foto)))
+                self.end_headers()
+                self.wfile.write(foto)
+            elif rota in ('/api/pedidos', '/api/config', '/api/sessao', '/api/alunos'):
+                if not self.autorizado():
+                    return
+                if rota == '/api/alunos':
+                    try:
+                        self.responder(200, listar_alunos(db))
+                    except sqlite3.Error:
+                        self.responder(503, {'erro': 'Não foi possível carregar os alunos. Tente novamente.'})
                     return
                 if rota == '/api/sessao':
                     self.responder(200, consultar_sessao(db, self.token_sessao()))
@@ -137,7 +163,8 @@ def criar_servidor(endereco, pasta, modo_demo=False):
             self.connection.settimeout(10)
             try:
                 tamanho = int(self.headers.get('Content-Length', '0'))
-                if tamanho < 1 or tamanho > 4096:
+                limite = 7 * 1024 * 1024 if rota in ('/api/alunos', '/api/alunos/editar') else 4096
+                if tamanho < 1 or tamanho > limite:
                     raise ValueError()
                 dados = json.loads(self.rfile.read(tamanho))
                 if not isinstance(dados, dict):
@@ -150,6 +177,17 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                 if rota == '/api/logout':
                     encerrar_sessao(db, self.token_sessao())
                     self.responder(200, {'ok': True}, cookie=self.cookie(apagar=True))
+                    return
+                if rota in ('/api/alunos', '/api/alunos/editar'):
+                    perfil = consultar_sessao(db, self.token_sessao())
+                    if not perfil:
+                        self.responder(401, {'erro':'Entre novamente para salvar o aluno.'})
+                        return
+                    aluno = salvar_aluno(db, dados, perfil['usuario'], editar=rota.endswith('/editar'))
+                    self.responder(200, aluno)
+                    return
+                if rota in ('/api/alunos/situacao', '/api/alunos/excluir'):
+                    self.responder(200, alterar_cadastro(db, dados, excluir=rota.endswith('/excluir')))
                     return
                 limpar_expirados(db)
                 with closing(sqlite3.connect(db, timeout=10)) as con, con:
@@ -182,7 +220,7 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                         self.responder(404, {'erro': 'Rota não encontrada.'})
                         return
                 self.responder(200, {'ok': True})
-            except ErroAcesso as erro:
+            except (ErroAcesso, ErroCadastro) as erro:
                 self.responder(erro.status, {'erro': str(erro)})
             except (ValueError, UnicodeError):
                 self.responder(400, {'erro': 'Pedido inválido.'})
