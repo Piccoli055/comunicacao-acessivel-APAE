@@ -6,6 +6,8 @@ import uuid
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from mensagens import MENSAGENS
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -16,9 +18,8 @@ def main():
         codigo = arquivo.read_text(encoding='utf-8').strip()
     except FileNotFoundError:
         parser.exit(1, 'Inicie servidor.py nesta pasta antes de gerar os exemplos.\n')
-    exemplos = [('Comunicador 01', 'Quero beber água.'), ('Comunicador 02', 'Preciso de ajuda.'),
-                ('Comunicador 03', 'Preciso ir ao banheiro.'), ('Comunicador 01', 'Estou feliz.'),
-                ('Comunicador 02', 'Preciso descansar.')]
+    exemplos = [(f'Comunicador {i % 3 + 1:02d}', mensagem['frase'])
+                for i, mensagem in enumerate(MENSAGENS.values())]
     enviados = 0
     try:
         for dispositivo, frase in exemplos:

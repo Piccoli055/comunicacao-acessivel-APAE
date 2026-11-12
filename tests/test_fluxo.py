@@ -256,6 +256,20 @@ class Fluxo(unittest.TestCase):
         self.assertEqual(restantes[0]['id'],'pendente-antigo')
         self.assertEqual(restantes[0]['aluno_nome'],'Nome do chamado')
 
+    def test_pictogramas_e_textos_antigos_na_api(self):
+        from mensagens import MENSAGENS
+        frases = [(m['frase'],tipo) for tipo,m in MENSAGENS.items()]
+        frases.extend([('Quero beber água.','agua'),('Pedido personalizado','mensagem')])
+        for i,(frase,_) in enumerate(frases):
+            self.api('/api/pedidos',{'id':str(i),'frase':frase,'dispositivo':'Ensaio'},codigo=self.codigo)
+        por_id = {p['id']:p for p in self.api('/api/pedidos')}
+        for i,(frase,tipo) in enumerate(frases):
+            self.assertEqual(por_id[str(i)]['frase'],frase)
+            self.assertEqual(por_id[str(i)]['tipo_mensagem'],tipo)
+        with urlopen(self.url+'/pictogramas.svg') as resposta:
+            self.assertIn('image/svg+xml',resposta.headers['Content-Type'])
+            self.assertIn(b'id="agua"',resposta.read())
+
     def test_acesso_e_validacao(self):
         with self.assertRaises(HTTPError) as e:
             self.api('/api/pedidos', codigo='errado')

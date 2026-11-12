@@ -23,10 +23,10 @@ class Fila:
         finally:
             con.close()
 
-    def adicionar(self, frase, dispositivo='MVP'):
-        identificador = str(uuid.uuid4())
+    def adicionar(self, frase, dispositivo='MVP', identificador=None):
+        identificador = identificador or str(uuid.uuid4())
         with self.conectar() as con:
-            con.execute('INSERT INTO fila VALUES (?, ?, ?)', (identificador, frase, dispositivo))
+            con.execute('INSERT OR IGNORE INTO fila VALUES (?, ?, ?)', (identificador, frase, dispositivo))
         return identificador
 
     def pendentes(self):

@@ -36,7 +36,7 @@ async function portaLivre() {
   }
   assert(pronto,'Servidor de teste não iniciou');
   navegador = await chromium.launch({headless:true,...(process.env.TEST_BROWSER ? {channel:process.env.TEST_BROWSER} : {})});
-  const contexto = await navegador.newContext({viewport:{width:1366,height:900}});
+  const contexto = await navegador.newContext({viewport:{width:1366,height:900},extraHTTPHeaders:{'X-Portal':'tutora'}});
   const page = await contexto.newPage();
   page.setDefaultTimeout(10000);
   const erros = [];
@@ -70,6 +70,16 @@ async function portaLivre() {
   assert(primeiraFoto);
   assert.equal((await contexto.request.get(url+primeiraFoto)).status(),200);
   assert.equal(await page.locator('#total-alunos').textContent(),'1');
+  const editarInicial = page.getByRole('button',{name:'Editar aluno: Aluno Fictício',exact:true});
+  await editarInicial.focus();
+  await page.evaluate(async () => {
+    const antes = document.activeElement;
+    await atualizarAlunos();
+    if (document.activeElement !== antes) throw Error('Atualização removeu o foco do cadastro');
+    ultimaConsultaAlunos = 0;
+    await atualizar();
+    if (document.activeElement !== antes) throw Error('Polling removeu o foco do cadastro');
+  });
   // Primeiro item dos vínculos: associar, trocar e remover no portal.
   await page.locator('#nav-comunicadores').click();
   await page.locator('#vazio-comunicadores').waitFor({state:'visible'});
@@ -159,6 +169,9 @@ async function portaLivre() {
   const historicoAluno = page.locator('.registro-historico').filter({hasText:'Quero beber água de teste.'});
   await historicoAluno.waitFor();
   assert.equal(await historicoAluno.locator('.aluno-pedido-nome').textContent(),'Aluno Fictício');
+  const datasHistorico = (await (await contexto.request.get(url+'/api/pedidos')).json()).find(p=>p.id==='pedido-aluno');
+  assert.equal(await historicoAluno.locator('.registro-atendimento time').getAttribute('datetime'),datasHistorico.atualizado);
+  assert.equal(await historicoAluno.locator('.registro-recebimento time').getAttribute('datetime'),datasHistorico.recebido);
   assert.equal(await page.locator('#pedidos button').count(),0);
   assert.equal(await page.locator('#filtro-aluno').inputValue(),aluno.id);
   assert.equal(await page.locator('.registro-historico').count(),1);
@@ -281,6 +294,44 @@ async function portaLivre() {
   assert.equal(historicoAnonimo.estado,pedidoHistoricoAntes.estado);
   assert.equal(historicoAnonimo.recebido,pedidoHistoricoAntes.recebido);
   assert.equal(historicoAnonimo.atualizado,pedidoHistoricoAntes.atualizado);
+  // Pictogramas e datas: seis tipos principais, texto antigo e texto livre.
+  const exemplos = [
+    ['Quero água.','agua'],['Quero ir ao banheiro.','banheiro'],['Preciso de ajuda.','ajuda'],
+    ['Não estou bem.','mal_estar'],['Estou com fome.','comida'],['Quero descansar.','descanso'],
+    ['Quero beber água.','agua'],['Mensagem personalizada de teste.','mensagem'],
+  ];
+  for (const [indice,[frase]] of exemplos.entries()) {
+    assert((await contexto.request.post(url+'/api/pedidos',{data:{id:'picto-'+indice,frase,dispositivo:'Ensaio pictogramas'}})).ok());
+  }
+  await page.locator('#nav-pendentes').click();
+  await page.waitForFunction(() => [...document.getElementById('dispositivo').options].some(o=>o.value==='Ensaio pictogramas'));
+  await page.locator('#filtro-aluno').selectOption('');
+  await page.locator('#dispositivo').selectOption('Ensaio pictogramas');
+  assert.equal(await page.locator('.pedido').count(),8);
+  for (const [frase,tipo] of exemplos) {
+    const card = page.locator('.pedido').filter({has:page.getByRole('heading',{name:frase,exact:true})});
+    assert.equal(await card.locator('.pictograma-solicitacao').getAttribute('data-pictograma'),tipo);
+    assert.equal(await card.locator('.pictograma-solicitacao use').getAttribute('href'),'pictogramas.svg#'+tipo);
+  }
+  assert.equal((await contexto.request.get(url+'/pictogramas.svg')).status(),200);
+  await page.setViewportSize({width:1366,height:900});
+  await page.screenshot({path:path.join(raiz,'tmp','pictogramas-pendentes-desktop.png'),fullPage:true});
+  const agua = page.locator('.pedido').filter({has:page.getByRole('heading',{name:'Quero água.',exact:true})});
+  await agua.getByRole('button',{name:/^Confirmar recebimento:/}).click();
+  await agua.getByRole('button',{name:/^Marcar como atendido:/}).waitFor();
+  await agua.getByRole('button',{name:/^Marcar como atendido:/}).click();
+  await agua.waitFor({state:'hidden'});
+  await page.locator('#nav-historico').click();
+  assert.equal(await page.locator('.registro-historico').count(),8);
+  assert.equal(await page.locator('.registro-atendimento time').count(),1);
+  assert.equal(await page.locator('.registro-atendimento').filter({hasText:'Aguardando atendimento'}).count(),7);
+  assert.equal(await page.locator('#pedidos button').count(),0);
+  await page.setViewportSize({width:1366,height:900});
+  await page.screenshot({path:path.join(raiz,'tmp','pictogramas-historico-desktop.png'),fullPage:true});
+  await page.setViewportSize({width:360,height:800});
+  await page.screenshot({path:path.join(raiz,'tmp','pictogramas-historico-celular.png'),fullPage:true});
+  assert(await page.evaluate(() => document.documentElement.scrollWidth<=window.innerWidth+1),'Rolagem horizontal no histórico com pictogramas');
+  await page.locator('#nav-alunos').click();
   await page.locator('#novo-aluno').click();
   await page.locator('#aluno-nome').fill('Rascunho');
   await page.locator('#aluno-foto').setInputFiles(fixture);

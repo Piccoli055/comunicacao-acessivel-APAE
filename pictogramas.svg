@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg"><defs>
+<symbol id="agua" viewBox="0 0 64 64"><path d="M16 12h32l-5 42H21zM19 33h26M32 5v18"/></symbol>
+<symbol id="banheiro" viewBox="0 0 64 64"><path d="M10 8h17v20H10zM17 29v12h12M28 29h27c0 11-8 17-21 17l-3 10h18M49 46v10"/></symbol>
+<symbol id="ajuda" viewBox="0 0 64 64"><circle cx="32" cy="32" r="25"/><path d="M32 18v28M18 32h28"/></symbol>
+<symbol id="mal_estar" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24"/><path d="M20 23l6 6m0-6l-6 6m18-6l6 6m0-6l-6 6M22 44q10-8 20 0"/></symbol>
+<symbol id="comida" viewBox="0 0 64 64"><circle cx="35" cy="32" r="18"/><path d="M8 8v19q0 7 7 7V8M8 19h7M11 34v23M58 8v49"/></symbol>
+<symbol id="descanso" viewBox="0 0 64 64"><path d="M7 16v40m0-12h50v12M8 30h48v14M14 25h12v13H14zM57 26v18M36 8h12l-12 12h12"/></symbol>
+<symbol id="feliz" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24"/><path d="M21 24h1m20 0h1M20 38q12 16 24 0"/></symbol>
+<symbol id="triste" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24"/><path d="M21 24h1m20 0h1M20 45q12-14 24 0"/></symbol>
+<symbol id="dor" viewBox="0 0 64 64"><path d="M35 5L16 36h15l-3 23 21-33H34z"/></symbol>
+<symbol id="medo" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24"/><path d="M19 21l7 3m12 0l7-3"/><ellipse cx="32" cy="42" rx="7" ry="9"/></symbol>
+<symbol id="sim" viewBox="0 0 64 64"><path d="M9 33l15 16L55 14"/></symbol>
+<symbol id="nao" viewBox="0 0 64 64"><path d="M15 15l34 34M49 15L15 49"/></symbol>
+<symbol id="obrigado" viewBox="0 0 64 64"><path d="M32 53L10 32C-3 15 20 3 32 19 44 3 67 15 54 32z"/></symbol>
+<symbol id="repetir" viewBox="0 0 64 64"><path d="M51 25A22 22 0 1 0 51 43M51 8v17H34"/></symbol>
+<symbol id="mensagem" viewBox="0 0 64 64"><path d="M8 10h48v34H28L14 55V44H8zM18 22h28M18 32h21"/></symbol>
+</defs></svg>

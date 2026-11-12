@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#163e45"><title>Modo aluno · Comunicador</title><link rel="icon" href="/icone.svg" type="image/svg+xml"><link rel="stylesheet" href="/aluno.css"><script src="/aluno.js" defer></script></head>
+<body class="escolhendo-aluno">
+<header class="cabecalho"><a class="marca" href="/aluno"><img src="/icone.svg" alt="" width="42" height="42"><span>comunicador<small>MODO ALUNO</small></span></a><span class="etiqueta">Protótipo acadêmico</span></header>
+<main id="conteudo">
+ <section id="carregando" role="status"><h1>Preparando seu comunicador…</h1><p>Aguarde enquanto buscamos os alunos.</p></section>
+ <section id="acesso-entrada" aria-labelledby="titulo-acesso-entrada" hidden><h1 id="titulo-acesso-entrada">Vamos preparar este navegador?</h1><p>A tutora entra uma vez para liberar os blocos dos alunos.</p><a class="link" href="/">Entrar no portal da tutora</a></section>
+ <section id="escolha-aluno" aria-labelledby="titulo-escolha" hidden>
+  <h1 id="titulo-escolha" class="sr-only" tabindex="-1">Escolha seu nome</h1>
+  <div id="blocos-alunos" class="grade-alunos" role="group" aria-labelledby="titulo-escolha"></div>
+  <div id="sem-alunos" class="sem-alunos" hidden><h2>Nenhum aluno disponível</h2><p>Os alunos cadastrados e ativos no portal da tutora aparecerão aqui.</p></div>
+ </section>
+ <section id="identidade" aria-labelledby="nome-aluno" hidden>
+  <div class="perfil-aluno"><div class="retrato"><span id="iniciais" aria-hidden="true"></span><img id="foto" alt="" hidden></div><div class="dados-aluno"><p class="sobretitulo" id="nome-comunicador"></p><h1 id="nome-aluno"></h1></div></div>
+  <div class="barra-comunicacao"><button id="inicio-comunicacao" type="button" class="secundario" hidden>‹ Início</button><div><h2 id="titulo-comunicacao" tabindex="-1">O que você quer comunicar?</h2><p id="descricao-comunicacao">Escolha uma categoria ou peça ajuda.</p></div></div>
+  <div id="opcoes-comunicacao" class="grade-comunicacao" role="group" aria-labelledby="titulo-comunicacao"></div>
+  <div id="selecao-mensagem" class="selecao-mensagem" role="status" aria-live="polite" aria-atomic="true" hidden><span>Mensagem selecionada</span><p id="texto-mensagem"></p></div>
+ </section>
+ <section id="vinculo-pendente" aria-labelledby="titulo-pendente" hidden><p class="sobretitulo" id="comunicador-pendente"></p><h1 id="titulo-pendente"></h1><p id="descricao-pendente"></p></section>
+ <p id="falha-conexao" class="erro" role="alert" hidden></p>
+ <div id="acoes" class="acoes" hidden><button id="atualizar" class="secundario" type="button">Atualizar identificação</button><button id="trocar-aluno" class="secundario" type="button">Trocar aluno</button></div>
+ <p id="aviso" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+</main>
+<footer>Funciona em celular, tablet e computador · Mesma rede do servidor</footer>
+</body></html>

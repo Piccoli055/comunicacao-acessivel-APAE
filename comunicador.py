@@ -6,16 +6,17 @@ import queue
 import shutil
 import subprocess
 import threading
+import uuid
 import tkinter as tk
 from pathlib import Path
 
 from transporte import Fila
+from mensagens import MENSAGENS, opcao_mensagem
 
 ROOT = Path(__file__).resolve().parent
 GRUPOS = {
-    'Necessidades': [('Água', 'Quero beber água.', 'agua'), ('Comida', 'Quero comer.', 'comida'),
-                     ('Banheiro', 'Preciso ir ao banheiro.', 'banheiro'), ('Descanso', 'Preciso descansar.', 'descanso')],
-    'Sentimentos': [('Feliz', 'Estou feliz.', 'feliz'), ('Triste', 'Estou triste.', 'triste'),
+    'Necessidades': [opcao_mensagem(identificador) for identificador in ('agua','comida','banheiro','descanso')],
+    'Sentimentos': [opcao_mensagem('mal_estar'), ('Feliz', 'Estou feliz.', 'feliz'), ('Triste', 'Estou triste.', 'triste'),
                     ('Dor', 'Estou sentindo dor.', 'dor'), ('Medo', 'Estou com medo.', 'medo')],
     'Conversar': [('Sim', 'Sim.', 'sim'), ('Não', 'Não.', 'nao'),
                   ('Obrigado', 'Obrigado.', 'feliz'), ('De novo', 'Pode repetir, por favor?', 'repetir')],
@@ -70,6 +71,10 @@ class Comunicador:
         self.parar = threading.Event()
         self.fila = Fila(ROOT / 'data' / 'fila.sqlite3')
         self.grupo = None
+        self.pagina = 0
+        self.confirmacao = None
+        self.frase_confirmada = None
+        self.enviando = False
         janela.title('Comunicador · MVP')
         janela.geometry('480x320')
         janela.resizable(False, False)
@@ -83,6 +88,8 @@ class Comunicador:
                   relief='flat', font=('DejaVu Sans', 12)).pack(side='left', padx=4)
         self.titulo = tk.Label(topo, bg=COR, fg='white', font=('DejaVu Sans', 14, 'bold'))
         self.titulo.pack(side='left', padx=8)
+        self.navegacao = tk.Frame(topo, bg=COR)
+        self.navegacao.pack(side='right', padx=4)
         self.corpo = tk.Frame(janela, bg='#eff4f6')
         self.corpo.pack(fill='both', expand=True, padx=8, pady=6)
         self.status = tk.Label(janela, text='Escolha uma categoria', bg='#eff4f6', fg=COR,
@@ -93,7 +100,10 @@ class Comunicador:
         janela.after(150, self.receber_eventos)
 
     def limpar(self, titulo):
+        self.confirmacao = None
+        self.frase_confirmada = None
         self.titulo.config(text=titulo)
+        for filho in self.navegacao.winfo_children(): filho.destroy()
         for filho in self.corpo.winfo_children(): filho.destroy()
 
     def grade(self, itens):
@@ -113,37 +123,64 @@ class Comunicador:
 
     def inicio(self):
         self.grupo = None
+        self.pagina = 0
         self.limpar('Como posso ajudar?')
         self.grade([('Necessidades', 'agua', lambda: self.categoria('Necessidades')),
                     ('Sentimentos', 'feliz', lambda: self.categoria('Sentimentos')),
                     ('Conversar', 'repetir', lambda: self.categoria('Conversar')),
-                    ('Ajuda', 'ajuda', lambda: self.confirmar('Preciso de ajuda.'))])
+                    ('Ajuda', 'ajuda', lambda: self.confirmar(MENSAGENS['ajuda']['frase']))])
 
-    def categoria(self, nome):
+    def categoria(self, nome, pagina=0):
+        itens = GRUPOS[nome]
+        paginas = (len(itens) + 3) // 4
         self.grupo = nome
+        self.pagina = max(0, min(pagina, paginas - 1))
         self.limpar(nome)
+        if self.pagina > 0:
+            tk.Button(self.navegacao, text='‹ Anterior', bg=COR, fg='white',
+                      relief='flat', font=('DejaVu Sans', 10),
+                      command=lambda: self.categoria(nome, self.pagina - 1)).pack(side='left')
+        if self.pagina < paginas - 1:
+            tk.Button(self.navegacao, text='Mais ›', bg=COR, fg='white',
+                      relief='flat', font=('DejaVu Sans', 10),
+                      command=lambda: self.categoria(nome, self.pagina + 1)).pack(side='left')
         self.grade([(titulo, desenho, lambda f=frase: self.confirmar(f))
-                    for titulo, frase, desenho in GRUPOS[nome]])
+                    for titulo, frase, desenho in itens[self.pagina * 4:(self.pagina + 1) * 4]])
+        texto = f'Página {self.pagina + 1} de {paginas}. Escolha uma mensagem.' if paginas > 1 else 'Escolha uma mensagem.'
+        self.status.config(text=texto)
 
     def confirmar(self, frase):
         self.limpar('Enviar esta mensagem?')
+        token = uuid.uuid4().hex
+        self.confirmacao = token
+        self.frase_confirmada = frase
         tk.Label(self.corpo, text=frase, font=('DejaVu Sans', 23, 'bold'), fg=COR,
                  bg='#eff4f6', wraplength=440).pack(expand=True, fill='both')
         botoes = tk.Frame(self.corpo, bg='#eff4f6'); botoes.pack(fill='x', pady=8)
         tk.Button(botoes, text='Voltar', font=('DejaVu Sans', 16), height=2,
-                  command=lambda: self.categoria(self.grupo) if self.grupo else self.inicio()).pack(side='left', fill='x', expand=True, padx=4)
-        tk.Button(botoes, text='Falar e enviar', bg='#125a6b', fg='white', font=('DejaVu Sans', 16, 'bold'),
-                  height=2, command=lambda: self.enviar(frase)).pack(side='left', fill='x', expand=True, padx=4)
+                  command=lambda: self.categoria(self.grupo, self.pagina) if self.grupo else self.inicio()).pack(side='left', fill='x', expand=True, padx=4)
+        self.botao_enviar = tk.Button(botoes, text='Falar e enviar', bg='#125a6b', fg='white', font=('DejaVu Sans', 16, 'bold'),
+                  height=2, command=lambda: self.enviar(frase, token))
+        self.botao_enviar.pack(side='left', fill='x', expand=True, padx=4)
 
-    def enviar(self, frase):
+    def enviar(self, frase, token):
+        # Uma confirmação é consumida uma única vez, inclusive por callbacks antigos.
+        if self.enviando or token != self.confirmacao or frase != self.frase_confirmada:
+            return False
+        self.enviando = True
+        self.botao_enviar.config(state='disabled')
         try:
-            self.fila.adicionar(frase, self.args.dispositivo)
+            self.fila.adicionar(frase, self.args.dispositivo, identificador=token)
         except Exception:
             self.status.config(text='Não foi possível guardar o pedido. Tente novamente.')
-            return
+            self.botao_enviar.config(state='normal')
+            return False
+        finally:
+            self.enviando = False
         self.inicio()
         self.status.config(text='Pedido guardado. Aguardando envio à tutora.')
         threading.Thread(target=self.audio, args=(frase,), daemon=True).start()
+        return True
 
     def audio(self, frase):
         comando = falar(frase)
@@ -158,13 +195,13 @@ class Comunicador:
 
     def sincronizar(self):
         while not self.parar.is_set():
-            if self.fila.pendentes():
-                try:
+            try:
+                if self.fila.pendentes():
                     codigo = self.args.codigo or (ROOT / 'data' / 'acesso.txt').read_text(encoding='utf-8').strip()
                     self.fila.enviar(self.args.servidor, codigo)
                     self.eventos.put('Pedido(s) enviado(s) à tutora.')
-                except Exception:
-                    self.eventos.put('Pedido guardado. Verificando conexão com a tutora…')
+            except Exception:
+                self.eventos.put('Não foi possível verificar o envio. Tentaremos novamente…')
             self.parar.wait(2)
 
     def receber_eventos(self):

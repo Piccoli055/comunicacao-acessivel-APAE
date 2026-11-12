@@ -1,5 +1,7 @@
 """Serviço local do MVP. Python, SQLite e Pillow para validar fotografias."""
 import argparse
+from mensagens import tipo_mensagem, catalogo_aluno
+from modo_aluno import preparar_modo_aluno, configurar_navegador, consultar_contexto, encerrar_modo_aluno, liberar_entrada, listar_entrada, retrato_entrada, selecionar_aluno
 from comunicadores import preparar_comunicadores, listar_comunicadores, salvar_vinculo
 from alunos import (preparar_alunos, listar_alunos, salvar_aluno, alterar_cadastro, ler_foto, ErroCadastro)
 from contextlib import closing
@@ -18,15 +20,20 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
 RETENCAO_HORAS = 48
-ARQUIVOS = {'/': ('tutora.html', 'text/html; charset=utf-8'),
+ARQUIVOS = {'/aluno': ('aluno.html', 'text/html; charset=utf-8'),
+            '/aluno.js': ('aluno.js', 'text/javascript; charset=utf-8'),
+            '/aluno.css': ('aluno.css', 'text/css; charset=utf-8'),
+            '/': ('tutora.html', 'text/html; charset=utf-8'),
             '/portal.css': ('portal.css', 'text/css; charset=utf-8'),
             '/portal.js': ('portal.js', 'text/javascript; charset=utf-8'),
-            '/icone.svg': ('icone.svg', 'image/svg+xml')}
+            '/icone.svg': ('icone.svg', 'image/svg+xml'),
+            '/pictogramas.svg': ('pictogramas.svg', 'image/svg+xml')}
 
 
 def limpar_expirados(db, instante=None):
     limite = ((instante or datetime.now(timezone.utc)) - timedelta(hours=RETENCAO_HORAS)).isoformat()
     with closing(sqlite3.connect(db, timeout=10)) as con, con:
+        con.execute('PRAGMA secure_delete=ON')
         return con.execute("DELETE FROM pedidos WHERE estado='atendido' AND julianday(atualizado) <= julianday(?)", (limite,)).rowcount
 
 
@@ -50,6 +57,7 @@ def preparar(pasta):
     preparar_acesso(db)
     preparar_alunos(db)
     preparar_comunicadores(db)
+    preparar_modo_aluno(db)
     return db, segredo.read_text(encoding='utf-8').strip()
 
 
@@ -64,10 +72,32 @@ def criar_servidor(endereco, pasta, modo_demo=False):
 
         def service_actions(self):
             if time.monotonic() - self.ultima_limpeza >= 60:
-                limpar_expirados(db)
+                try:
+                    limpar_expirados(db)
+                except sqlite3.Error:
+                    # Uma indisponibilidade temporária não pode encerrar serve_forever.
+                    pass
                 self.ultima_limpeza = time.monotonic()
 
     class Handler(BaseHTTPRequestHandler):
+        def setup(self):
+            self.request.settimeout(10)
+            super().setup()
+
+        def do_GET(self):
+            try:
+                self.executar_GET()
+            except ErroAcesso as erro:
+                self.responder(erro.status, {'erro': str(erro)})
+            except sqlite3.Error:
+                self.responder(503, {'erro': 'Banco temporariamente indisponível. Tente novamente.'})
+
+        def do_POST(self):
+            try:
+                self.executar_POST()
+            except sqlite3.Error:
+                self.responder(503, {'erro': 'Banco temporariamente indisponível. Tente novamente.'})
+
         def responder(self, status, valor, cookie=None):
             corpo = json.dumps(valor, ensure_ascii=False).encode('utf-8')
             self.send_response(status)
@@ -77,14 +107,15 @@ def criar_servidor(endereco, pasta, modo_demo=False):
             self.send_header('Referrer-Policy', 'no-referrer')
             self.send_header('Content-Length', str(len(corpo)))
             if cookie:
-                self.send_header('Set-Cookie', cookie)
+                for valor_cookie in (cookie if isinstance(cookie, list) else [cookie]):
+                    self.send_header('Set-Cookie', valor_cookie)
             self.end_headers()
             self.wfile.write(corpo)
 
-        def token_sessao(self):
+        def token_sessao(self, nome='portal_sessao'):
             try:
                 cookies = SimpleCookie(self.headers.get('Cookie', ''))
-                return cookies['portal_sessao'].value if 'portal_sessao' in cookies else ''
+                return cookies[nome].value if nome in cookies else ''
             except CookieError:
                 return ''
 
@@ -96,11 +127,12 @@ def criar_servidor(endereco, pasta, modo_demo=False):
             self.responder(401, {'erro': 'Entre com instituição, usuário e senha para continuar.'})
             return False
 
-        def cookie(self, token='', apagar=False):
-            return ('portal_sessao=' + token + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' +
+        def cookie(self, token='', apagar=False, aluno=False, entrada=False):
+            nome, caminho = ('entrada_sessao', '/api/aluno') if entrada else (('comunicador_sessao', '/api/aluno') if aluno else ('portal_sessao', '/'))
+            return (nome + '=' + token + '; Path=' + caminho + '; HttpOnly; SameSite=Strict; Max-Age=' +
                     ('0' if apagar else str(DURACAO_SESSAO)))
 
-        def do_GET(self):
+        def executar_GET(self):
             rota = urlsplit(self.path).path
             if rota in ARQUIVOS:
                 nome, tipo = ARQUIVOS[rota]
@@ -113,6 +145,37 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                 self.send_header('Content-Length', str(len(corpo)))
                 self.end_headers()
                 self.wfile.write(corpo)
+            elif rota == '/api/aluno/entrada':
+                self.responder(200, listar_entrada(db, self.token_sessao('entrada_sessao')))
+            elif rota.startswith('/api/aluno/retrato/'):
+                foto = retrato_entrada(db, rota.removeprefix('/api/aluno/retrato/'), self.token_sessao('entrada_sessao'))
+                if foto is None:
+                    self.responder(404, {'erro':'Foto indisponível.'})
+                else:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'image/jpeg')
+                    self.send_header('Cache-Control', 'no-store')
+                    self.send_header('X-Content-Type-Options', 'nosniff')
+                    self.send_header('Content-Length', str(len(foto)))
+                    self.end_headers()
+                    self.wfile.write(foto)
+            elif rota in ('/api/aluno/perfil', '/api/aluno/foto', '/api/aluno/catalogo'):
+                token = self.token_sessao('comunicador_sessao')
+                contexto = consultar_contexto(db, token, incluir_foto=rota.endswith('/foto'))
+                if rota.endswith('/catalogo'):
+                    self.responder(200, catalogo_aluno())
+                elif rota.endswith('/perfil'):
+                    self.responder(200, contexto)
+                elif contexto is None:
+                    self.responder(404, {'erro': 'Foto indisponível.'})
+                else:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'image/jpeg')
+                    self.send_header('Cache-Control', 'no-store')
+                    self.send_header('X-Content-Type-Options', 'nosniff')
+                    self.send_header('Content-Length', str(len(contexto)))
+                    self.end_headers()
+                    self.wfile.write(contexto)
             elif rota.startswith('/api/fotos/'):
                 if not self.autorizado():
                     return
@@ -161,16 +224,18 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                         FROM pedidos p LEFT JOIN fotos_alunos f ON f.aluno_id=p.aluno_id
                         ORDER BY p.recebido ASC,p.id ASC
                     """).fetchall()
-                self.responder(200, [dict(row) for row in rows])
+                self.responder(200, [dict(row, tipo_mensagem=tipo_mensagem(row['frase'])) for row in rows])
             else:
                 self.responder(404, {'erro': 'Página não encontrada.'})
 
-        def do_POST(self):
+        def executar_POST(self):
             rota = urlsplit(self.path).path
-            if rota not in ('/api/login', '/api/logout') and not self.autorizado(aceitar_dispositivo=rota == '/api/pedidos'):
+            if rota not in ('/api/login', '/api/logout', '/api/aluno/desconectar', '/api/aluno/selecionar') and not self.autorizado(aceitar_dispositivo=rota == '/api/pedidos'):
                 return
             # Requisições do navegador usam cabeçalho próprio para impedir envio entre origens.
-            if rota != '/api/pedidos' and self.headers.get('X-Portal') != 'tutora':
+            envio_dispositivo = rota == '/api/pedidos' and hmac.compare_digest(self.headers.get('X-Codigo', '').encode('utf-8'), segredo.encode('utf-8'))
+            portal_esperado = 'aluno' if rota.startswith('/api/aluno/') else 'tutora'
+            if not envio_dispositivo and self.headers.get('X-Portal') != portal_esperado:
                 self.responder(403, {'erro': 'Abra o portal pelo endereço do servidor e tente novamente.'})
                 return
             self.connection.settimeout(10)
@@ -182,6 +247,24 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                 dados = json.loads(self.rfile.read(tamanho))
                 if not isinstance(dados, dict):
                     raise ValueError()
+                if rota == '/api/aluno/liberar':
+                    token = liberar_entrada(db, self.token_sessao('entrada_sessao'))
+                    encerrar_sessao(db, self.token_sessao())
+                    self.responder(200, {'ok': True}, cookie=[self.cookie(token, entrada=True),self.cookie(apagar=True)])
+                    return
+                if rota == '/api/aluno/selecionar':
+                    token = selecionar_aluno(db, dados.get('aluno_id'), self.token_sessao('entrada_sessao'), self.token_sessao('comunicador_sessao'))
+                    self.responder(200, {'ok': True}, cookie=self.cookie(token, aluno=True))
+                    return
+                if rota == '/api/aluno/configurar':
+                    token = configurar_navegador(db, dados.get('dispositivo'), self.token_sessao('comunicador_sessao'))
+                    encerrar_sessao(db, self.token_sessao())
+                    self.responder(200, {'ok': True}, cookie=[self.cookie(token, aluno=True), self.cookie(apagar=True)])
+                    return
+                if rota == '/api/aluno/desconectar':
+                    encerrar_modo_aluno(db, self.token_sessao('comunicador_sessao'))
+                    self.responder(200, {'ok': True}, cookie=self.cookie(apagar=True, aluno=True))
+                    return
                 if rota == '/api/login':
                     token, perfil = autenticar(db, dados.get('instituicao'), dados.get('usuario'), dados.get('senha'), self.client_address[0])
                     encerrar_sessao(db, self.token_sessao())
@@ -214,6 +297,8 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                         prioridade = dados.get('prioridade', 'ajuda' if 'ajuda' in dados['frase'].casefold() else 'normal')
                         if prioridade not in ('normal', 'ajuda'):
                             raise ValueError()
+                        if tipo_mensagem(dados['frase']) == 'ajuda':
+                            prioridade = 'ajuda'
                         instante = datetime.now(timezone.utc).isoformat()
                         # O vínculo é resolvido pelo servidor; o aparelho não escolhe outro aluno.
                         # A mesma transação impede troca do vínculo entre a leitura e o registro.
@@ -224,6 +309,9 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                         con.execute('INSERT OR IGNORE INTO pedidos (id, frase, dispositivo, recebido, prioridade, atualizado, aluno_id, aluno_nome) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                                     (dados['id'], dados['frase'].strip(), dispositivo, instante, prioridade, instante, aluno_id, aluno_nome))
                     elif rota in ('/api/confirmar', '/api/atender'):
+                        # Serializa leitura e atualização para impedir regressão e
+                        # renovação do prazo em ações simultâneas de duas tutoras.
+                        con.execute('BEGIN IMMEDIATE')
                         if not isinstance(dados.get('id'), str) or not dados['id']:
                             raise ValueError()
                         row = con.execute('SELECT estado FROM pedidos WHERE id=?', (dados['id'],)).fetchone()

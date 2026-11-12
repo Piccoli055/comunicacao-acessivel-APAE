@@ -48,7 +48,8 @@ function avisar(texto) {
 }
 
 function conexao(online, erro = '') {
-  $('estado-conexao').textContent = online ? 'Conectado' : 'Sem conexão';
+  const estado = online ? 'Conectado' : 'Sem conexão';
+  if ($('estado-conexao').textContent !== estado) $('estado-conexao').textContent = estado;
   $('luz-conexao').classList.toggle('offline', !online);
   $('aviso-conexao').hidden = online;
   $('aviso-conexao').textContent = erro ? erro + ' Os pedidos já carregados continuam visíveis. Tentaremos novamente automaticamente.' : '';
@@ -122,10 +123,26 @@ function avatarAlunoPedido(pedido) {
   return avatar;
 }
 
+function tituloSolicitacao(pedido) {
+  const bloco = elemento('div', 'solicitacao-pedido');
+  const tipos = new Set(['agua','banheiro','ajuda','mal_estar','comida','descanso','feliz','triste','dor','medo','sim','nao','obrigado','repetir']);
+  const tipo = tipos.has(pedido.tipo_mensagem) ? pedido.tipo_mensagem : 'mensagem';
+  const desenho = elemento('span', 'pictograma-solicitacao' + (tipo === 'ajuda' ? ' destaque-ajuda' : ''));
+  desenho.setAttribute('aria-hidden', 'true');
+  desenho.setAttribute('data-pictograma',tipo);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox','0 0 64 64'); svg.setAttribute('focusable','false');
+  const uso = document.createElementNS('http://www.w3.org/2000/svg','use');
+  uso.setAttribute('href','pictogramas.svg#' + tipo);
+  svg.append(uso); desenho.append(svg);
+  bloco.append(desenho,elemento('h2','',pedido.frase));
+  return bloco;
+}
+
 function registroHistorico(pedido) {
   const registro = elemento('article', 'registro-historico');
   const mensagem = elemento('div', 'registro-mensagem');
-  mensagem.append(elemento('h2', '', pedido.frase));
+  mensagem.append(tituloSolicitacao(pedido));
   if (pedido.prioridade === 'ajuda') mensagem.append(elemento('span', 'selo ajuda', 'Pedido de ajuda'));
   const comunicador = elemento('div', 'registro-comunicador');
   const identificacao = elemento('div', 'identidade-historico');
@@ -141,7 +158,16 @@ function registroHistorico(pedido) {
   }));
   horario.dateTime = pedido.recebido;
   recebimento.append(elemento('small', 'rotulo-registro', 'Recebimento'), horario);
-  registro.append(mensagem, comunicador, situacao, recebimento);
+  const atendimento = elemento('div', 'registro-atendimento');
+  atendimento.append(elemento('small', 'rotulo-registro', 'Atendimento'));
+  if (pedido.estado === 'atendido' && pedido.atualizado) {
+    const atendido = elemento('time','',new Date(pedido.atualizado).toLocaleString('pt-BR', {
+      day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',
+    }));
+    atendido.dateTime = pedido.atualizado;
+    atendimento.append(atendido);
+  } else atendimento.append(elemento('span','','Aguardando atendimento'));
+  registro.append(mensagem, comunicador, situacao, recebimento, atendimento);
   return registro;
 }
 
@@ -179,7 +205,7 @@ function renderizar(forcar = false) {
     const selos = elemento('div', 'pedido-selos');
     selos.append(elemento('span', 'selo ' + pedido.estado, nomes[pedido.estado]));
     if (pedido.prioridade === 'ajuda') selos.append(elemento('span', 'selo ajuda', 'Pedido de ajuda'));
-    const titulo = elemento('h2', '', pedido.frase);
+    const titulo = tituloSolicitacao(pedido);
     const meta = elemento('div', 'pedido-meta');
     const horario = new Date(pedido.recebido);
     const tempo = elemento('time', '', horario.toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}));
@@ -355,10 +381,11 @@ async function atualizarAlunos() {
     try {
       const lista = await api('/api/alunos');
       if (atual !== sessao || !conectado) return;
+      const mudou = !alunosCarregados || JSON.stringify(lista) !== JSON.stringify(alunos);
       alunos = lista;
       alunosCarregados = true;
       ultimaConsultaAlunos = Date.now();
-      renderizarAlunos();
+      if (mudou) renderizarAlunos();
     } catch (erro) {
       if (atual !== sessao || !conectado) return;
       if (erro.status === 401) {
@@ -641,7 +668,9 @@ function aplicarPedidos(lista) {
 async function atualizar() {
   if (!conectado) return;
   if (consulta) return consulta;
-  if (Date.now() - ultimaConsultaAlunos > 15000 && !consultaAlunos) atualizarAlunos();
+  // A atualização automática não pode remover o botão usado pelo teclado.
+  if (Date.now() - ultimaConsultaAlunos > 15000 && !consultaAlunos
+      && !$('lista-alunos').contains(document.activeElement)) atualizarAlunos();
   const atual = sessao;
   consulta = (async () => {
     try {

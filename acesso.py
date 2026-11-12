@@ -63,6 +63,8 @@ def normalizar_usuario(usuario):
 def configurar_conta(db, cnpj, usuario, senha, perfil='tutora'):
     cnpj = normalizar_cnpj(cnpj)
     normalizar_usuario(usuario)
+    if perfil not in ('tutora', 'admdev'):
+        raise ValueError('Perfil de acesso inválido.')
     minimo = 6 if perfil == 'admdev' else 10
     if not isinstance(senha, str) or not minimo <= len(senha) <= 128:
         raise ValueError('Escolha uma senha com 10 a 128 caracteres.')
@@ -78,13 +80,20 @@ def configurar_conta(db, cnpj, usuario, senha, perfil='tutora'):
 
 def autenticar(db, cnpj, usuario, senha, origem):
     instante = time.time()
+    # Reserva a tentativa antes da derivação: chamadas simultâneas não podem
+    # ler o mesmo contador e sobrescrever as falhas umas das outras.
     with conectar(db) as con:
+        con.execute('BEGIN IMMEDIATE')
         conta = con.execute('SELECT cnpj, usuario, sal, senha_hash, iteracoes, perfil FROM conta_tutora WHERE id=1').fetchone()
         falha = con.execute('SELECT falhas, primeira, bloqueado_ate FROM tentativas_acesso WHERE origem=?', (origem,)).fetchone()
-    if not conta:
-        raise ErroAcesso('O acesso inicial ainda não foi configurado. A equipe deve executar configurar_acesso.py no servidor.', 503)
-    if falha and falha[2] > instante:
-        raise ErroAcesso('Muitas tentativas. Aguarde cinco minutos e tente novamente.', 429)
+        if not conta:
+            raise ErroAcesso('O acesso inicial ainda não foi configurado. A equipe deve executar configurar_acesso.py no servidor.', 503)
+        if falha and falha[2] > instante:
+            raise ErroAcesso('Muitas tentativas. Aguarde cinco minutos e tente novamente.', 429)
+        quantidade = falha[0] + 1 if falha and instante - falha[1] < BLOQUEIO_SEGUNDOS else 1
+        primeira = falha[1] if falha and instante - falha[1] < BLOQUEIO_SEGUNDOS else instante
+        bloqueio = instante + BLOQUEIO_SEGUNDOS if quantidade >= MAX_TENTATIVAS else 0
+        con.execute('INSERT OR REPLACE INTO tentativas_acesso VALUES (?,?,?,?)', (origem, quantidade, primeira, bloqueio))
     try:
         cnpj_valido = normalizar_cnpj(cnpj)
         usuario_valido = normalizar_usuario(usuario)
@@ -97,14 +106,13 @@ def autenticar(db, cnpj, usuario, senha, origem):
                and cnpj_valido == conta[0]
                and usuario_valido == normalizar_usuario(conta[1]))
     if not correto:
-        quantidade = falha[0] + 1 if falha and instante - falha[1] < BLOQUEIO_SEGUNDOS else 1
-        primeira = falha[1] if falha and instante - falha[1] < BLOQUEIO_SEGUNDOS else instante
-        bloqueio = instante + BLOQUEIO_SEGUNDOS if quantidade >= MAX_TENTATIVAS else 0
-        with conectar(db) as con:
-            con.execute('INSERT OR REPLACE INTO tentativas_acesso VALUES (?,?,?,?)', (origem, quantidade, primeira, bloqueio))
         raise ErroAcesso('CNPJ, usuário ou senha incorretos.', 429 if bloqueio else 401)
     token = secrets.token_urlsafe(32)
     with conectar(db) as con:
+        con.execute('BEGIN IMMEDIATE')
+        atual = con.execute('SELECT cnpj, usuario, sal, senha_hash, iteracoes, perfil FROM conta_tutora WHERE id=1').fetchone()
+        if atual != conta:
+            raise ErroAcesso('O acesso foi redefinido. Entre novamente com as credenciais atuais.')
         con.execute('DELETE FROM tentativas_acesso WHERE origem=?', (origem,))
         con.execute('DELETE FROM sessoes WHERE expira <= ?', (instante,))
         con.execute('INSERT INTO sessoes VALUES (?,?)', (hashlib.sha256(token.encode()).hexdigest(), instante + DURACAO_SESSAO))
@@ -116,9 +124,8 @@ def consultar_sessao(db, token):
         return None
     resumo = hashlib.sha256(token.encode()).hexdigest()
     with conectar(db) as con:
-        row = con.execute('SELECT expira FROM sessoes WHERE token_hash=?', (resumo,)).fetchone()
-        conta = con.execute('SELECT usuario, cnpj, perfil FROM conta_tutora WHERE id=1').fetchone()
-    if not row or row[0] <= time.time() or not conta:
+        conta = con.execute('SELECT c.usuario,c.cnpj,c.perfil FROM sessoes s JOIN conta_tutora c ON c.id=1 WHERE s.token_hash=? AND s.expira>?', (resumo,time.time())).fetchone()
+    if not conta:
         return None
     return {'usuario': conta[0], 'cnpj': conta[1], 'perfil': conta[2]}
 
