@@ -5,3 +5,85 @@ main{max-width:1120px}#identidade{max-width:none;text-align:left}.perfil-aluno{d
 
 /* Entrada compartilhada: somente os blocos dos alunos ativos. */
 .escolhendo-aluno .cabecalho,.escolhendo-aluno footer{display:none}.escolhendo-aluno main{max-width:1280px;border:0;background:transparent;margin:0 auto;padding:32px}.escolhendo-aluno #acoes{border:0}.grade-alunos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px}#escolha-aluno{max-width:none}.bloco-aluno{display:flex;flex-direction:column;align-items:center;gap:14px;background:#fff;border:2px solid #dce5df;border-radius:20px;padding:14px 14px 20px;color:#183c43;min-width:0;text-align:center;box-shadow:0 3px 12px #183c4308}.bloco-aluno:hover{border-color:#1d6257;background:#f5faf6}.retrato-bloco{width:100%;aspect-ratio:1;position:relative;display:grid;place-items:center;overflow:hidden;background:#eaf3ed;border-radius:12px}.retrato-bloco img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.iniciais-bloco{font-size:clamp(2.5rem,5vw,4rem);font-weight:700;color:#1d6257}.nome-bloco{font-size:1.2rem;line-height:1.35;overflow-wrap:anywhere}.tag-aluno{display:inline-flex;align-items:center;justify-content:center;gap:7px;max-width:100%;padding:5px 10px;border-radius:20px;font-size:.72rem;line-height:1.4;font-weight:650;overflow-wrap:anywhere}.tag-aluno:before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}.cor-azul{color:#1e40af;background:#dbeafe}.cor-roxo{color:#6b21a8;background:#f3e8ff}.cor-ambar{color:#92400e;background:#fef3c7}.cor-verde{color:#166534;background:#dcfce7}.cor-neutro{color:#475569;background:#f1f5f9}.sem-alunos{text-align:center;padding:64px 20px}.sem-alunos p{color:#526760}@media(max-width:1000px){.grade-alunos{grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}}@media(max-width:650px){.escolhendo-aluno main{padding:18px 12px}.grade-alunos{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.bloco-aluno{padding:10px 10px 16px;gap:12px;border-radius:16px}.nome-bloco{font-size:1rem}.tag-aluno{font-size:.65rem;padding:5px 8px}}@media(max-width:330px){.grade-alunos{grid-template-columns:minmax(0,1fr)}}
+
+/* Confirmação isolada: o restante da página fica inerte enquanto aberta. */
+.confirmacao-mensagem{width:calc(100% - 32px);max-width:680px;max-height:calc(100dvh - 32px);overflow-y:auto;border:2px solid #1d6257;border-radius:24px;padding:clamp(20px,4vw,40px);color:#183c43;background:#fff;text-align:center}
+.confirmacao-mensagem::backdrop{background:#102e38b3}
+.confirmacao-mensagem h2{font-size:clamp(1.4rem,4vw,2rem);line-height:1.3;margin:0 0 24px;overflow-wrap:anywhere}
+.icone-confirmacao{display:flex;justify-content:center}.icone-confirmacao .desenho-comunicacao{width:100px;height:100px;background:#eaf3ed}.icone-confirmacao svg{width:76px;height:76px}
+.frase-confirmacao{font-size:clamp(1.6rem,5vw,2.5rem);line-height:1.35;font-weight:700;overflow-wrap:anywhere;margin:24px 0 32px}
+.acoes-confirmacao{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}.acoes-confirmacao button{min-height:64px;flex:1;min-width:160px}.acoes-confirmacao button:disabled{cursor:default}
+.aviso-confirmacao{font-size:.85rem;color:#526760;margin:20px 0 0}
+@media(max-width:420px){.acoes-confirmacao{flex-direction:column}.acoes-confirmacao button{width:100%;min-width:0}}
+
+.resultado-envio{padding:18px 22px;border:2px solid #1d6257;border-radius:16px;background:#eaf3ed;color:#183c43;font-weight:650}
+
+.painel-fila{margin-top:24px;padding:18px 22px;border:1px solid #d1aa76;border-radius:16px;background:#fff4e5;color:#724315}.painel-fila p{margin:0 0 16px;overflow-wrap:anywhere}.acoes-fila{display:flex;flex-wrap:wrap;gap:12px}@media(max-width:600px){.acoes-fila button{width:100%}}
+
+/* Perfil fixo de baixa visão. Nenhum seletor de preferências no MVP. */
+body.baixa-visao{background:#101418;color:#fff;font-size:1.35rem}
+.baixa-visao main,.baixa-visao .cabecalho,.baixa-visao .confirmacao-mensagem{background:#101418;color:#fff;border-color:#fff}
+.baixa-visao main{margin-top:20px}.baixa-visao .cabecalho{padding-block:12px}
+.baixa-visao .marca,.baixa-visao .sobretitulo,.baixa-visao .etiqueta,.baixa-visao footer,.baixa-visao .barra-comunicacao p,.baixa-visao .aviso-confirmacao{color:#fff}
+.baixa-visao button{min-height:76px;background:#202a34;color:#fff;border:3px solid #fff;font-size:1.3rem;overflow-wrap:anywhere;scroll-margin-top:140px}
+.baixa-visao button:disabled{opacity:1;color:#bac4ce;border-color:#bac4ce;background:#101418;cursor:default}
+.baixa-visao button:focus-visible,.baixa-visao a:focus-visible{outline:5px solid #ffe066;outline-offset:4px}
+.apoio-baixa-visao{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:14px 20px;background:#101418;position:sticky;top:0;z-index:10;border-bottom:2px solid #fff}
+.baixa-visao .ajuda-fixa{background:#ffe066;color:#101418;border-color:#ffe066}
+.baixa-visao .grade-comunicacao,.baixa-visao .grade-comunicacao.em-categoria{grid-template-columns:minmax(0,1fr)}
+.baixa-visao .opcao-comunicacao,.baixa-visao .grade-comunicacao.em-categoria .opcao-comunicacao{min-height:260px;flex-direction:column;align-items:center;text-align:center;background:#202a34;color:#fff;gap:22px}
+.baixa-visao .opcao-comunicacao:hover,.baixa-visao .opcao-comunicacao[aria-pressed=true]{background:#304151;color:#fff;border-color:#ffe066;box-shadow:none}
+.baixa-visao .desenho-comunicacao{width:112px;height:112px;background:#101418;color:#fff}.baixa-visao .desenho-comunicacao svg{width:88px;height:88px}
+.baixa-visao .texto-opcao strong{font-size:2.25rem}.baixa-visao .texto-opcao small{font-size:1.35rem}
+.paginacao-baixa-visao{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:16px;margin-top:24px}.paginacao-baixa-visao p{text-align:center;font-size:1.15rem;margin:0}
+.baixa-visao .confirmacao-mensagem{padding:0 24px 28px;max-width:860px}.baixa-visao .apoio-confirmacao{margin:0 -24px 24px;padding:14px 24px;z-index:1}
+.baixa-visao .confirmacao-mensagem h2{font-size:1.65rem}.baixa-visao .frase-confirmacao{font-size:2.5rem}.baixa-visao #voltar-mensagem{display:none}
+.baixa-visao .resultado-envio,.baixa-visao .painel-fila,.baixa-visao .erro,.baixa-visao .aviso-voz{background:#202a34;color:#fff;border:2px solid #ffe066;border-radius:12px;padding:16px}
+.baixa-visao .aviso-voz{font-size:1.15rem}.baixa-visao .retrato{border:2px solid #fff}
+@media(max-width:600px){.baixa-visao main{padding:20px 16px}.apoio-baixa-visao{padding:12px;gap:12px}.paginacao-baixa-visao{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.paginacao-baixa-visao p{grid-row:1;grid-column:1/-1}.baixa-visao .texto-opcao strong{font-size:1.9rem}.baixa-visao .frase-confirmacao{font-size:2rem}.baixa-visao .confirmacao-mensagem{padding-inline:18px}.baixa-visao .apoio-confirmacao{margin-inline:-18px;padding-inline:12px}}
+
+/* Perfil motor: precisão do toque e distância entre ações, sem voz/carrossel. */
+.perfil-motor main{max-width:1200px}.perfil-motor button,.perfil-motor a.link{min-height:88px;padding:22px 28px;font-size:1.2rem}
+.perfil-motor .grade-comunicacao,.perfil-motor .grade-comunicacao.em-categoria{grid-template-columns:repeat(2,minmax(0,1fr));gap:32px}
+.perfil-motor .opcao-comunicacao,.perfil-motor .grade-comunicacao.em-categoria .opcao-comunicacao{min-height:220px;flex-direction:row;align-items:center;padding:28px;gap:24px;border-width:3px;background:#f0f5fa;border-color:#50718e}
+.perfil-motor .opcao-comunicacao.ajuda{background:#fff4e5;border-color:#945716}
+.perfil-motor .texto-opcao strong{font-size:1.5rem}.perfil-motor .texto-opcao small{font-size:1rem}
+.perfil-motor .acoes{gap:32px}.perfil-motor .barra-comunicacao{gap:32px}
+.perfil-motor .confirmacao-mensagem{max-width:760px}.perfil-motor .acoes-confirmacao{flex-direction:column;gap:48px;margin-top:28px}
+.perfil-motor .acoes-confirmacao button{width:100%;min-height:96px;flex:auto;margin:0}
+.perfil-motor #voltar-mensagem{background:#fff;color:#234d70;border:3px solid #50718e}
+.perfil-motor #confirmar-mensagem{background:#234d70;color:#fff;border:3px solid #234d70}
+.perfil-motor .toque-motor{outline:4px solid #234d70;outline-offset:4px}
+.perfil-motor .toque-cancelado{outline-style:dashed}
+.orientacao-motora{background:#edf3fa;border-left:5px solid #50718e;border-radius:8px;padding:18px 22px;color:#234d70;font-size:1rem;margin-bottom:28px}
+@media(max-width:800px){.perfil-motor .grade-comunicacao,.perfil-motor .grade-comunicacao.em-categoria{grid-template-columns:minmax(0,1fr)}.perfil-motor .opcao-comunicacao{min-height:180px}.perfil-motor .opcao-comunicacao,.perfil-motor .grade-comunicacao.em-categoria .opcao-comunicacao{padding:24px 18px}.perfil-motor .barra-comunicacao{flex-direction:column}.perfil-motor .acoes>*{width:100%}}
+@media(max-width:380px){.perfil-motor .opcao-comunicacao,.perfil-motor .grade-comunicacao.em-categoria .opcao-comunicacao{flex-direction:column;text-align:center}.perfil-motor button{padding:20px 14px}}
+
+/* Perfil cognitivo: pedidos diretos e rótulos curtos, sem menus por categoria. */
+.perfil-cognitivo .grade-comunicacao,.perfil-cognitivo .grade-comunicacao.em-categoria{grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+.perfil-cognitivo .opcao-comunicacao,.perfil-cognitivo .grade-comunicacao.em-categoria .opcao-comunicacao{flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:190px;padding:22px 14px;gap:18px;background:#f3f8f4;border-color:#6c9680}
+.perfil-cognitivo .opcao-comunicacao.ajuda{background:#fff4e5;border-color:#945716}
+.perfil-cognitivo .texto-opcao strong{font-size:1.3rem}.perfil-cognitivo .desenho-comunicacao{width:80px;height:80px}.perfil-cognitivo .desenho-comunicacao svg{width:64px;height:64px}
+.mais-mensagens{width:100%;margin-top:24px;min-height:64px;background:#fff;color:#1d6257;border:2px solid #6c9680}
+.perfil-cognitivo .confirmacao-mensagem h2{font-size:1.6rem}.perfil-cognitivo .acoes-confirmacao{gap:24px}
+.perfil-cognitivo .resultado-envio{font-size:1.3rem;border-width:3px}
+.perfil-cognitivo .resultado-envio[data-situacao=aguardando]{color:#724315;background:#fff4e5;border-color:#945716}
+.perfil-cognitivo .resultado-envio[data-situacao=enviado]{color:#164c35;background:#eaf5ed;border-color:#226442}
+@media(max-width:650px){.perfil-cognitivo .grade-comunicacao,.perfil-cognitivo .grade-comunicacao.em-categoria{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.perfil-cognitivo .opcao-comunicacao{min-height:168px;padding:18px 10px}.perfil-cognitivo .texto-opcao strong{font-size:1.1rem}}
+
+/* Perfil TEA: sequência explícita, categorias persistentes e Ajuda na mesma célula. */
+.perfil-tea *,.perfil-tea *::before,.perfil-tea *::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}
+.etapas-tea{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));list-style:none;padding:0;margin:0 0 24px;gap:12px;text-align:center;font-size:.95rem}
+.etapas-tea li{padding:14px 8px;border:2px solid #91a9a0;border-radius:12px;background:#f5f7f5;color:#183c43;overflow-wrap:anywhere}
+.etapas-tea [aria-current=step]{background:#1d6257;color:#fff;border-color:#1d6257;font-weight:750;text-decoration:underline;text-underline-offset:4px}
+.categorias-tea{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-bottom:28px}
+.categorias-tea button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-width:0;min-height:112px;padding:16px 8px;background:#fff;color:#183c43;border:2px solid #91a9a0;font-size:1rem;overflow-wrap:anywhere}
+.categorias-tea button[aria-pressed=true]{background:#e6f1e9;border-color:#1d6257;box-shadow:inset 0 0 0 2px #1d6257}
+.categorias-tea .desenho-comunicacao{width:44px;height:44px}.categorias-tea svg{width:36px;height:36px}
+.perfil-tea .grade-comunicacao,.perfil-tea .grade-comunicacao.em-categoria{grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(210px,auto);gap:20px}
+.perfil-tea .opcao-comunicacao,.perfil-tea .grade-comunicacao.em-categoria .opcao-comunicacao{flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:20px 12px;gap:14px;min-height:210px}
+.perfil-tea .opcao-comunicacao.ajuda{grid-row:3;grid-column:2}
+.perfil-tea .texto-opcao strong{font-size:1.35rem}.perfil-tea .texto-opcao small{font-size:1rem}
+.perfil-tea .barra-comunicacao{min-height:86px}.perfil-tea .resultado-envio{border-width:3px}
+.perfil-tea .confirmacao-mensagem .etapas-tea{margin-bottom:28px}
+@media(max-width:600px){.etapas-tea{gap:8px;font-size:.8rem}.etapas-tea li{padding:12px 5px}.categorias-tea{gap:10px}.categorias-tea button{font-size:.9rem}.perfil-tea .grade-comunicacao,.perfil-tea .grade-comunicacao.em-categoria{gap:14px;grid-auto-rows:minmax(260px,auto)}.perfil-tea .opcao-comunicacao{min-height:260px;padding:18px 8px}.perfil-tea .texto-opcao strong{font-size:1.1rem}.perfil-tea .texto-opcao small{font-size:.85rem}}

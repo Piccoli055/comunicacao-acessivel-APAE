@@ -154,6 +154,8 @@ def alterar_cadastro(db, dados, excluir=False):
             if {'aluno_id','aluno_nome'} <= colunas_pedidos:
                 # Retirada da autorização remove a identificação sem apagar chamados pendentes.
                 con.execute('UPDATE pedidos SET aluno_id=NULL,aluno_nome=NULL WHERE aluno_id=?', (identificador,))
+            if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='tutores_alunos'").fetchone():
+                con.execute('DELETE FROM tutores_alunos WHERE aluno_id=?',(identificador,))
             con.execute('DELETE FROM alunos WHERE id=?', (identificador,))
             return {'ok':True}
         if type(dados.get('ativo')) is not bool:

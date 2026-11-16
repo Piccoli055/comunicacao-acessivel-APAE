@@ -1,7 +1,8 @@
 <!doctype html>
 <html lang="pt-BR">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#163e45"><title>Modo aluno · Comunicador</title><link rel="icon" href="/icone.svg" type="image/svg+xml"><link rel="stylesheet" href="/aluno.css"><script src="/aluno.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#163e45"><title>Modo aluno · Comunicador</title><link rel="icon" href="/icone.svg" type="image/svg+xml"><link rel="stylesheet" href="/aluno.css"><script src="/fila_aluno.js" defer></script><script src="/aluno.js" defer></script></head>
 <body class="escolhendo-aluno">
+<nav id="apoio-baixa-visao" class="apoio-baixa-visao" aria-label="Ações principais" hidden><button id="voltar-baixa-visao" type="button">‹ Voltar</button><button id="ajuda-baixa-visao" type="button" class="ajuda-fixa">Ajuda</button></nav>
 <header class="cabecalho"><a class="marca" href="/aluno"><img src="/icone.svg" alt="" width="42" height="42"><span>comunicador<small>MODO ALUNO</small></span></a><span class="etiqueta">Protótipo acadêmico</span></header>
 <main id="conteudo">
  <section id="carregando" role="status"><h1>Preparando seu comunicador…</h1><p>Aguarde enquanto buscamos os alunos.</p></section>
@@ -13,11 +14,32 @@
  </section>
  <section id="identidade" aria-labelledby="nome-aluno" hidden>
   <div class="perfil-aluno"><div class="retrato"><span id="iniciais" aria-hidden="true"></span><img id="foto" alt="" hidden></div><div class="dados-aluno"><p class="sobretitulo" id="nome-comunicador"></p><h1 id="nome-aluno"></h1></div></div>
+  <ol id="etapas-tea" class="etapas-tea" aria-label="Etapas da mensagem" hidden><li data-etapa="escolher">1. Escolher</li><li data-etapa="confirmar">2. Confirmar</li><li data-etapa="resultado">3. Resultado</li></ol>
+  <nav id="categorias-tea" class="categorias-tea" aria-label="Categorias de mensagens" hidden></nav>
   <div class="barra-comunicacao"><button id="inicio-comunicacao" type="button" class="secundario" hidden>‹ Início</button><div><h2 id="titulo-comunicacao" tabindex="-1">O que você quer comunicar?</h2><p id="descricao-comunicacao">Escolha uma categoria ou peça ajuda.</p></div></div>
+  <p id="orientacao-motora" class="orientacao-motora" hidden>Toque e solte para escolher. Para cancelar um toque, arraste o dedo para fora do botão antes de soltar.</p>
   <div id="opcoes-comunicacao" class="grade-comunicacao" role="group" aria-labelledby="titulo-comunicacao"></div>
-  <div id="selecao-mensagem" class="selecao-mensagem" role="status" aria-live="polite" aria-atomic="true" hidden><span>Mensagem selecionada</span><p id="texto-mensagem"></p></div>
+  <button id="mais-mensagens" class="mais-mensagens" type="button" hidden>Mais mensagens</button>
+  <div id="paginacao-baixa-visao" class="paginacao-baixa-visao" hidden><button id="opcao-anterior" type="button">‹ Anterior</button><p id="posicao-opcao" role="status" aria-live="polite"></p><button id="opcao-proxima" type="button">Próxima ›</button></div>
+  <p id="aviso-voz" class="aviso-voz" role="status" aria-live="polite" hidden></p>
+  <dialog id="selecao-mensagem" class="confirmacao-mensagem" aria-labelledby="titulo-confirmacao" aria-describedby="texto-mensagem">
+   <div id="apoio-confirmacao" class="apoio-baixa-visao apoio-confirmacao" hidden><button id="voltar-confirmacao-baixa-visao" type="button">‹ Voltar</button><button id="ajuda-confirmacao" type="button" class="ajuda-fixa">Ajuda</button></div>
+   <ol id="etapas-tea-confirmacao" class="etapas-tea" aria-label="Etapas da mensagem" hidden><li data-etapa="escolher">1. Escolher</li><li data-etapa="confirmar">2. Confirmar</li><li data-etapa="resultado">3. Resultado</li></ol>
+   <h2 id="titulo-confirmacao" tabindex="-1" autofocus>É isso que você quer dizer?</h2>
+   <div id="desenho-confirmacao" class="icone-confirmacao"></div>
+   <p id="texto-mensagem" class="frase-confirmacao"></p>
+   <div class="acoes-confirmacao"><button id="voltar-mensagem" type="button" class="secundario">‹ Voltar</button><button id="confirmar-mensagem" type="button" aria-describedby="aviso-confirmacao">Enviar mensagem</button></div>
+   <p id="aviso-voz-confirmacao" class="aviso-voz" role="status" hidden></p>
+   <p id="aviso-confirmacao" class="aviso-confirmacao" role="status" aria-live="polite">A mensagem será enviada à tutora.</p>
+  </dialog>
+  <p id="resultado-envio" class="resultado-envio" role="status" aria-live="polite" hidden></p>
  </section>
  <section id="vinculo-pendente" aria-labelledby="titulo-pendente" hidden><p class="sobretitulo" id="comunicador-pendente"></p><h1 id="titulo-pendente"></h1><p id="descricao-pendente"></p></section>
+ <aside id="painel-fila" class="painel-fila" aria-label="Pedidos aguardando envio" hidden>
+  <p id="resumo-fila" role="status" aria-live="polite" aria-atomic="true"></p>
+  <div class="acoes-fila"><button id="reenviar-fila" type="button" class="secundario">Tentar enviar agora</button><button id="limpar-fila" type="button" class="secundario">Limpar fila deste navegador</button></div>
+ </aside>
+ <p id="aviso-motor" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
  <p id="falha-conexao" class="erro" role="alert" hidden></p>
  <div id="acoes" class="acoes" hidden><button id="atualizar" class="secundario" type="button">Atualizar identificação</button><button id="trocar-aluno" class="secundario" type="button">Trocar aluno</button></div>
  <p id="aviso" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>

@@ -40,6 +40,9 @@ def preparar_acesso(db):
             con.execute("ALTER TABLE conta_tutora ADD COLUMN perfil TEXT NOT NULL DEFAULT 'tutora'")
         con.execute('CREATE TABLE IF NOT EXISTS sessoes (token_hash TEXT PRIMARY KEY, expira REAL NOT NULL)')
         con.execute('CREATE TABLE IF NOT EXISTS tentativas_acesso (origem TEXT PRIMARY KEY, falhas INTEGER NOT NULL, primeira REAL NOT NULL, bloqueado_ate REAL NOT NULL DEFAULT 0)')
+        con.execute('CREATE TABLE IF NOT EXISTS tutores (id TEXT PRIMARY KEY,cnpj TEXT NOT NULL,nome TEXT NOT NULL,usuario TEXT NOT NULL,usuario_chave TEXT NOT NULL,sal TEXT NOT NULL,senha_hash TEXT NOT NULL,iteracoes INTEGER NOT NULL,ativo INTEGER NOT NULL DEFAULT 1,versao INTEGER NOT NULL DEFAULT 1,UNIQUE(cnpj,usuario_chave))')
+        con.execute('CREATE TABLE IF NOT EXISTS sessoes_tutores (token_hash TEXT PRIMARY KEY,tutor_id TEXT NOT NULL,expira REAL NOT NULL)')
+        con.execute('DELETE FROM sessoes_tutores WHERE expira<=?', (time.time(),))
         con.execute('DELETE FROM sessoes WHERE expira <= ?', (time.time(),))
 
 
@@ -72,9 +75,12 @@ def configurar_conta(db, cnpj, usuario, senha, perfil='tutora'):
     sal = secrets.token_bytes(16)
     resumo = hashlib.pbkdf2_hmac('sha256', senha.encode('utf-8'), sal, ITERACOES).hex()
     with conectar(db) as con:
+        if con.execute('SELECT 1 FROM tutores WHERE cnpj=? AND usuario_chave=?',(cnpj,normalizar_usuario(usuario))).fetchone():
+            raise ValueError('Este usuário já pertence a um tutor cadastrado.')
         con.execute('INSERT OR REPLACE INTO conta_tutora (id,cnpj,usuario,sal,senha_hash,iteracoes,perfil) VALUES (1,?,?,?,?,?,?)',
                     (cnpj, usuario.strip(), sal.hex(), resumo, ITERACOES, perfil))
         con.execute('DELETE FROM sessoes')
+        con.execute('DELETE FROM sessoes_tutores')
         con.execute('DELETE FROM tentativas_acesso')
 
 
@@ -101,10 +107,15 @@ def autenticar(db, cnpj, usuario, senha, origem):
         cnpj_valido, usuario_valido = '', ''
     if not isinstance(senha, str) or len(senha) > 128:
         senha = ''
-    calculado = hashlib.pbkdf2_hmac('sha256', senha.encode('utf-8'), bytes.fromhex(conta[2]), conta[4]).hex()
-    correto = (hmac.compare_digest(calculado, conta[3])
+    tutor = None
+    with conectar(db) as con:
+        if cnpj_valido == conta[0] and usuario_valido != normalizar_usuario(conta[1]):
+            tutor = con.execute('SELECT id,nome,usuario,sal,senha_hash,iteracoes,ativo,versao FROM tutores WHERE cnpj=? AND usuario_chave=?',(cnpj_valido,usuario_valido)).fetchone()
+    credencial = (tutor[3],tutor[4],tutor[5]) if tutor else (conta[2],conta[3],conta[4])
+    calculado = hashlib.pbkdf2_hmac('sha256', senha.encode('utf-8'), bytes.fromhex(credencial[0]), credencial[2]).hex()
+    correto = (hmac.compare_digest(calculado, credencial[1])
                and cnpj_valido == conta[0]
-               and usuario_valido == normalizar_usuario(conta[1]))
+               and ((bool(tutor[6]) if tutor else False) or (not tutor and usuario_valido == normalizar_usuario(conta[1]))))
     if not correto:
         raise ErroAcesso('CNPJ, usuário ou senha incorretos.', 429 if bloqueio else 401)
     token = secrets.token_urlsafe(32)
@@ -115,7 +126,15 @@ def autenticar(db, cnpj, usuario, senha, origem):
             raise ErroAcesso('O acesso foi redefinido. Entre novamente com as credenciais atuais.')
         con.execute('DELETE FROM tentativas_acesso WHERE origem=?', (origem,))
         con.execute('DELETE FROM sessoes WHERE expira <= ?', (instante,))
-        con.execute('INSERT INTO sessoes VALUES (?,?)', (hashlib.sha256(token.encode()).hexdigest(), instante + DURACAO_SESSAO))
+        if tutor:
+            tutor_atual = con.execute('SELECT id,nome,usuario,sal,senha_hash,iteracoes,ativo,versao FROM tutores WHERE id=?',(tutor[0],)).fetchone()
+            if tutor_atual != tutor:
+                raise ErroAcesso('O cadastro do tutor foi alterado. Entre novamente.')
+            con.execute('INSERT INTO sessoes_tutores VALUES (?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),tutor[0],instante+DURACAO_SESSAO))
+        else:
+            con.execute('INSERT INTO sessoes VALUES (?,?)', (hashlib.sha256(token.encode()).hexdigest(), instante + DURACAO_SESSAO))
+    if tutor:
+        return token, {'usuario':tutor[2],'cnpj':conta[0],'perfil':'tutora','tutor_id':tutor[0],'nome':tutor[1]}
     return token, {'usuario': conta[1], 'cnpj': conta[0], 'perfil': conta[5]}
 
 
@@ -125,15 +144,19 @@ def consultar_sessao(db, token):
     resumo = hashlib.sha256(token.encode()).hexdigest()
     with conectar(db) as con:
         conta = con.execute('SELECT c.usuario,c.cnpj,c.perfil FROM sessoes s JOIN conta_tutora c ON c.id=1 WHERE s.token_hash=? AND s.expira>?', (resumo,time.time())).fetchone()
-    if not conta:
-        return None
-    return {'usuario': conta[0], 'cnpj': conta[1], 'perfil': conta[2]}
+    if conta:
+        return {'usuario': conta[0], 'cnpj': conta[1], 'perfil': conta[2]}
+    with conectar(db) as con:
+        tutor = con.execute('SELECT t.usuario,t.cnpj,t.id,t.nome FROM sessoes_tutores s JOIN tutores t ON t.id=s.tutor_id JOIN conta_tutora c ON c.id=1 AND c.cnpj=t.cnpj WHERE s.token_hash=? AND s.expira>? AND t.ativo=1',(resumo,time.time())).fetchone()
+    return {'usuario':tutor[0],'cnpj':tutor[1],'perfil':'tutora','tutor_id':tutor[2],'nome':tutor[3]} if tutor else None
 
 
 def encerrar_sessao(db, token):
     if isinstance(token, str):
         with conectar(db) as con:
-            con.execute('DELETE FROM sessoes WHERE token_hash=?', (hashlib.sha256(token.encode()).hexdigest(),))
+            resumo = hashlib.sha256(token.encode()).hexdigest()
+            con.execute('DELETE FROM sessoes WHERE token_hash=?', (resumo,))
+            con.execute('DELETE FROM sessoes_tutores WHERE token_hash=?', (resumo,))
 
 def preparar_demo(db):
     """Cria a conta de testes ou atualiza exclusivamente o antigo acesso padrão."""

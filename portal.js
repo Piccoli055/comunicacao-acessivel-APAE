@@ -4,6 +4,7 @@ const $ = id => document.getElementById(id);
 let conectado = false, sessao = 0, pedidos = [], vistos = new Set(), primeiraCarga = true;
 let visao = 'pendentes', assinatura = '', consulta = null, somAtivo = false, audio = null;
 let toastTimer = null;
+let perfilLogado = null;
 let alunos = [], alunosCarregados = false, consultaAlunos = null;
 let fotoAlunoURL = null, alunoEdicao = null, novoAlunoId = null, removerFoto = false;
 let geracaoFormulario = 0, salvandoAluno = false, ultimaConsultaAlunos = 0;
@@ -86,9 +87,9 @@ function atualizarFiltroAluno() {
 function resumo() {
   atualizarFiltroAluno();
   for (const [estado, id] of [['novo', 'total-novos'], ['recebido', 'total-recebidos'], ['atendido', 'total-atendidos']]) {
-    $(id).textContent = pedidos.filter(p => p.estado === estado).length;
+    $(id).textContent = pedidos.filter(p => p.estado === estado && p.meu_pedido !== false).length;
   }
-  $('badge-pendentes').textContent = pedidos.filter(p => p.estado !== 'atendido').length;
+  $('badge-pendentes').textContent = pedidos.filter(p => p.estado !== 'atendido' && p.meu_pedido !== false).length;
   const selecionado = $('dispositivo').value;
   const dispositivos = [...new Set(pedidos.map(p => p.dispositivo))].sort((a,b) => a.localeCompare(b, 'pt-BR'));
   // Não remover o filtro selecionado enquanto um pedido expira.
@@ -144,10 +145,12 @@ function registroHistorico(pedido) {
   const mensagem = elemento('div', 'registro-mensagem');
   mensagem.append(tituloSolicitacao(pedido));
   if (pedido.prioridade === 'ajuda') mensagem.append(elemento('span', 'selo ajuda', 'Pedido de ajuda'));
+  if (pedido.encaminhamento === 'responsavel') mensagem.append(elemento('span','selo responsavel','Responsável'));
   const comunicador = elemento('div', 'registro-comunicador');
   const identificacao = elemento('div', 'identidade-historico');
   const dadosAluno = elemento('div', 'dados-identidade');
   dadosAluno.append(elemento('span', 'aluno-pedido-nome', nomeAlunoPedido(pedido)), elemento('small', 'comunicador-pedido', pedido.dispositivo));
+  dadosAluno.append(elemento('small','comunicador-pedido','Tutor: ' + ((pedido.tutores || []).map(t => t.nome).join(', ') || 'Não atribuído')));
   identificacao.append(avatarAlunoPedido(pedido), dadosAluno);
   comunicador.append(elemento('small', 'rotulo-registro', 'Aluno / comunicador'), identificacao);
   const situacao = elemento('div', 'registro-situacao');
@@ -173,11 +176,11 @@ function registroHistorico(pedido) {
 
 function renderizar(forcar = false) {
   resumo();
-  if (visao === 'alunos' || visao === 'comunicadores') return;
+  if (visao === 'alunos' || visao === 'comunicadores' || visao === 'tutores') return;
   const busca = $('busca').value.trim().toLocaleLowerCase('pt-BR');
   const comunicador = $('dispositivo').value, situacao = $('filtro-estado').value;
   const alunoSelecionado = $('filtro-aluno').value;
-  let lista = pedidos.filter(p => (visao === 'historico' || p.estado !== 'atendido')
+  let lista = pedidos.filter(p => (visao === 'historico' || (p.estado !== 'atendido' && p.meu_pedido !== false))
     && (!comunicador || p.dispositivo === comunicador)
     && (!situacao || p.estado === situacao)
     && (!alunoSelecionado || (alunoSelecionado === '__sem_aluno__' ? !p.aluno_id : p.aluno_id === alunoSelecionado))
@@ -205,6 +208,7 @@ function renderizar(forcar = false) {
     const selos = elemento('div', 'pedido-selos');
     selos.append(elemento('span', 'selo ' + pedido.estado, nomes[pedido.estado]));
     if (pedido.prioridade === 'ajuda') selos.append(elemento('span', 'selo ajuda', 'Pedido de ajuda'));
+    if (pedido.encaminhamento === 'responsavel') selos.append(elemento('span','selo responsavel','Responsável'));
     const titulo = tituloSolicitacao(pedido);
     const meta = elemento('div', 'pedido-meta');
     const horario = new Date(pedido.recebido);
@@ -653,7 +657,7 @@ function excluirAluno(aluno, botao) {
 }
 
 function aplicarPedidos(lista) {
-  const novos = primeiraCarga ? [] : lista.filter(p => !vistos.has(p.id) && p.estado === 'novo');
+  const novos = primeiraCarga ? [] : lista.filter(p => !vistos.has(p.id) && p.estado === 'novo' && p.meu_pedido !== false);
   pedidos = lista;
   vistos = new Set(lista.map(p => p.id));
   primeiraCarga = false;
@@ -712,7 +716,7 @@ async function alterarPedido(pedido, botao) {
   } catch (erro) {
     if (atual === sessao && conectado) {
       avisar(salvo ? 'Ação salva. Não foi possível atualizar a lista agora.' : erro.message);
-      if (erro.status === 404) { assinatura = ''; await atualizar(); renderizar(true); }
+      if (erro.status === 404 || erro.status === 403) { assinatura = ''; await atualizar(); renderizar(true); }
     }
   } finally {
     if (botao.isConnected) {
@@ -747,7 +751,8 @@ function atualizarSom() {
 }
 
 function limparSessao(focar = true) {
-  sessao++; conectado = false; consulta = null;
+  sessao++; conectado = false; consulta = null; perfilLogado = null;
+  if (typeof limparTutores === 'function') limparTutores();
   requisicoes.forEach(r => r.abort()); requisicoes.clear();
   pedidos = []; vistos.clear(); primeiraCarga = true; assinatura = '';
   alunos = []; alunosCarregados = false; consultaAlunos = null; ultimaConsultaAlunos = 0;
@@ -787,19 +792,28 @@ function limparSessao(focar = true) {
 
 function mudarVisao(nova, desenhar = true) {
   visao = nova; assinatura = '';
-  for (const id of ['pendentes','historico','alunos','comunicadores']) {
+  for (const id of ['pendentes','historico','alunos','comunicadores','tutores']) {
     $('nav-' + id).classList.toggle('selecionado', id === nova);
     if (id === nova) $('nav-' + id).setAttribute('aria-current','page');
     else $('nav-' + id).removeAttribute('aria-current');
   }
+  const tutoresVisiveis = nova === 'tutores';
+  $('painel-tutores').hidden = !tutoresVisiveis;
   const alunosVisiveis = nova === 'alunos';
   const comunicadoresVisiveis = nova === 'comunicadores';
   $('painel-comunicadores').hidden = !comunicadoresVisiveis;
-  $('painel-pedidos').hidden = alunosVisiveis || comunicadoresVisiveis;
+  $('painel-pedidos').hidden = alunosVisiveis || comunicadoresVisiveis || tutoresVisiveis;
   $('painel-alunos').hidden = !alunosVisiveis;
-  $('rodape-pedidos').hidden = alunosVisiveis || comunicadoresVisiveis;
+  $('rodape-pedidos').hidden = alunosVisiveis || comunicadoresVisiveis || tutoresVisiveis;
   $('pular').textContent = 'Pular para o conteúdo';
   $('resumo-pedidos').hidden = nova !== 'pendentes';
+  if (tutoresVisiveis) {
+    $('titulo-pagina').textContent = 'Tutores';
+    $('descricao-pagina').textContent = 'Cadastre acessos e defina os alunos de cada responsável.';
+    $('aviso-novos').hidden = true;
+    if (desenhar) atualizarTutores();
+    return;
+  }
   if (comunicadoresVisiveis) {
     $('titulo-pagina').textContent = 'Comunicadores';
     $('descricao-pagina').textContent = 'Associe cada aparelho ao aluno que o utiliza.';
@@ -817,7 +831,7 @@ function mudarVisao(nova, desenhar = true) {
   $('titulo-pagina').textContent = nova === 'pendentes' ? 'Pedidos pendentes' : 'Histórico de chamados';
   $('pedidos').classList.toggle('historico', nova === 'historico');
   $('cabecalho-historico').hidden = nova !== 'historico';
-  $('descricao-pagina').textContent = nova === 'pendentes' ? 'Acompanhe o que precisa da sua atenção.' : 'Consulte e filtre os chamados. Os atendidos permanecem por 48 horas após o atendimento.';
+  $('descricao-pagina').textContent = nova === 'pendentes' ? 'Acompanhe o que precisa da sua atenção.' : 'Consulte os chamados de todos os tutores. Os atendidos permanecem por 48 horas após o atendimento.';
   $('ordem-lista').textContent = nova === 'pendentes' ? 'Mais antigos primeiro' : 'Pedidos mais recentes primeiro';
   const situacoes = [['','Todas as situações'],['novo','Novos'],['recebido','Recebidos']];
   if (nova === 'historico') situacoes.push(['atendido','Atendidos']);
@@ -827,10 +841,11 @@ function mudarVisao(nova, desenhar = true) {
 }
 
 function abrirPortal(perfil, lista) {
-  conectado = true;
+  conectado = true; perfilLogado = perfil;
+  $('nav-tutores').hidden = Boolean(perfil.tutor_id);
   $('senha').value = '';
   $('entrada').hidden = true; $('portal').hidden = false; $('pular').hidden = false;
-  $('perfil-usuario').textContent = perfil.usuario + (perfil.perfil === 'admdev' ? ' · ADM Desenvolvedor' : ' · Tutora');
+  $('perfil-usuario').textContent = (perfil.nome || perfil.usuario) + (perfil.perfil === 'admdev' ? ' · ADM Desenvolvedor' : ' · Tutora');
   $('pedidos').setAttribute('aria-busy', 'true');
   aplicarPedidos(lista);
   atualizarAlunos();

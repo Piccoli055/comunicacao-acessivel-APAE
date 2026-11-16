@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
+const http = require('node:http');
 const {spawn, spawnSync} = require('node:child_process');
 const {chromium} = require('playwright');
 const raiz = path.join(__dirname, '..');
@@ -30,7 +31,7 @@ async function portaLivre() {
   servidor = spawn(python,['-B','servidor.py','--demo','--porta',String(porta),'--dados',path.join(temporario,'dados')], {cwd:raiz,stdio:'ignore',windowsHide:true});
   let pronto = false;
   for (let i=0;i<80;i++) {
-    try { pronto = (await fetch(url)).ok; } catch (_) {}
+    pronto = await new Promise(resolve=>{const req=http.get(url,res=>{res.resume();res.on('end',()=>resolve(res.statusCode===200));});req.on('error',()=>resolve(false));req.setTimeout(1500,()=>{req.destroy();resolve(false);});});
     if (pronto) break;
     await pausa(200);
   }

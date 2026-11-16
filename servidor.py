@@ -1,7 +1,8 @@
 """Serviço local do MVP. Python, SQLite e Pillow para validar fotografias."""
 import argparse
+from tutores import preparar_tutores,listar_tutores,salvar_tutor,registrar_responsavel,pode_atender
 from mensagens import tipo_mensagem, catalogo_aluno
-from modo_aluno import preparar_modo_aluno, configurar_navegador, consultar_contexto, encerrar_modo_aluno, liberar_entrada, listar_entrada, retrato_entrada, selecionar_aluno
+from modo_aluno import preparar_modo_aluno, configurar_navegador, consultar_contexto, encerrar_modo_aluno, liberar_entrada, listar_entrada, retrato_entrada, selecionar_aluno, enviar_mensagem
 from comunicadores import preparar_comunicadores, listar_comunicadores, salvar_vinculo
 from alunos import (preparar_alunos, listar_alunos, salvar_aluno, alterar_cadastro, ler_foto, ErroCadastro)
 from contextlib import closing
@@ -20,12 +21,14 @@ from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent
 RETENCAO_HORAS = 48
-ARQUIVOS = {'/aluno': ('aluno.html', 'text/html; charset=utf-8'),
+ARQUIVOS = {'/fila_aluno.js': ('fila_aluno.js', 'text/javascript; charset=utf-8'),
+            '/aluno': ('aluno.html', 'text/html; charset=utf-8'),
             '/aluno.js': ('aluno.js', 'text/javascript; charset=utf-8'),
             '/aluno.css': ('aluno.css', 'text/css; charset=utf-8'),
             '/': ('tutora.html', 'text/html; charset=utf-8'),
             '/portal.css': ('portal.css', 'text/css; charset=utf-8'),
             '/portal.js': ('portal.js', 'text/javascript; charset=utf-8'),
+            '/tutores.js': ('tutores.js', 'text/javascript; charset=utf-8'),
             '/icone.svg': ('icone.svg', 'image/svg+xml'),
             '/pictogramas.svg': ('pictogramas.svg', 'image/svg+xml')}
 
@@ -34,6 +37,8 @@ def limpar_expirados(db, instante=None):
     limite = ((instante or datetime.now(timezone.utc)) - timedelta(hours=RETENCAO_HORAS)).isoformat()
     with closing(sqlite3.connect(db, timeout=10)) as con, con:
         con.execute('PRAGMA secure_delete=ON')
+        if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pedidos_tutores'").fetchone():
+            con.execute("DELETE FROM pedidos_tutores WHERE pedido_id IN (SELECT id FROM pedidos WHERE estado='atendido' AND julianday(atualizado)<=julianday(?))",(limite,))
         return con.execute("DELETE FROM pedidos WHERE estado='atendido' AND julianday(atualizado) <= julianday(?)", (limite,)).rowcount
 
 
@@ -58,6 +63,7 @@ def preparar(pasta):
     preparar_alunos(db)
     preparar_comunicadores(db)
     preparar_modo_aluno(db)
+    preparar_tutores(db)
     return db, segredo.read_text(encoding='utf-8').strip()
 
 
@@ -194,8 +200,14 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                 self.send_header('Content-Length', str(len(foto)))
                 self.end_headers()
                 self.wfile.write(foto)
-            elif rota in ('/api/pedidos', '/api/config', '/api/sessao', '/api/alunos', '/api/comunicadores'):
+            elif rota in ('/api/pedidos', '/api/config', '/api/sessao', '/api/alunos', '/api/comunicadores', '/api/tutores'):
                 if not self.autorizado():
+                    return
+                if rota == '/api/tutores':
+                    try:
+                        self.responder(200, listar_tutores(db, consultar_sessao(db, self.token_sessao())))
+                    except ErroAcesso as erro:
+                        self.responder(erro.status, {'erro':str(erro)})
                     return
                 if rota == '/api/comunicadores':
                     try:
@@ -224,13 +236,22 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                         FROM pedidos p LEFT JOIN fotos_alunos f ON f.aluno_id=p.aluno_id
                         ORDER BY p.recebido ASC,p.id ASC
                     """).fetchall()
-                self.responder(200, [dict(row, tipo_mensagem=tipo_mensagem(row['frase'])) for row in rows])
+                perfil = consultar_sessao(db, self.token_sessao())
+                if not perfil:
+                    self.responder(401, {'erro':'Entre novamente.'})
+                    return
+                with closing(sqlite3.connect(db, timeout=10)) as con:
+                    lista = []
+                    for row in rows:
+                        responsaveis = con.execute('SELECT tutor_id,tutor_nome,origem FROM pedidos_tutores WHERE pedido_id=? ORDER BY tutor_nome',(row['id'],)).fetchall()
+                        lista.append(dict(row,tipo_mensagem=tipo_mensagem(row['frase']),meu_pedido=pode_atender(con,row['id'],perfil),encaminhamento=responsaveis[0][2] if responsaveis else None,tutores=[{'id':r[0],'nome':r[1]} for r in responsaveis]))
+                self.responder(200, lista)
             else:
                 self.responder(404, {'erro': 'Página não encontrada.'})
 
         def executar_POST(self):
             rota = urlsplit(self.path).path
-            if rota not in ('/api/login', '/api/logout', '/api/aluno/desconectar', '/api/aluno/selecionar') and not self.autorizado(aceitar_dispositivo=rota == '/api/pedidos'):
+            if rota not in ('/api/login', '/api/logout', '/api/aluno/desconectar', '/api/aluno/selecionar', '/api/aluno/enviar') and not self.autorizado(aceitar_dispositivo=rota == '/api/pedidos'):
                 return
             # Requisições do navegador usam cabeçalho próprio para impedir envio entre origens.
             envio_dispositivo = rota == '/api/pedidos' and hmac.compare_digest(self.headers.get('X-Codigo', '').encode('utf-8'), segredo.encode('utf-8'))
@@ -241,7 +262,7 @@ def criar_servidor(endereco, pasta, modo_demo=False):
             self.connection.settimeout(10)
             try:
                 tamanho = int(self.headers.get('Content-Length', '0'))
-                limite = 7 * 1024 * 1024 if rota in ('/api/alunos', '/api/alunos/editar') else 4096
+                limite = 7 * 1024 * 1024 if rota in ('/api/alunos', '/api/alunos/editar') else (128 * 1024 if rota in ('/api/tutores','/api/tutores/editar') else 4096)
                 if tamanho < 1 or tamanho > limite:
                     raise ValueError()
                 dados = json.loads(self.rfile.read(tamanho))
@@ -261,6 +282,9 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                     encerrar_sessao(db, self.token_sessao())
                     self.responder(200, {'ok': True}, cookie=[self.cookie(token, aluno=True), self.cookie(apagar=True)])
                     return
+                if rota == '/api/aluno/enviar':
+                    self.responder(200, enviar_mensagem(db, self.token_sessao('comunicador_sessao'), dados))
+                    return
                 if rota == '/api/aluno/desconectar':
                     encerrar_modo_aluno(db, self.token_sessao('comunicador_sessao'))
                     self.responder(200, {'ok': True}, cookie=self.cookie(apagar=True, aluno=True))
@@ -273,6 +297,10 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                 if rota == '/api/logout':
                     encerrar_sessao(db, self.token_sessao())
                     self.responder(200, {'ok': True}, cookie=self.cookie(apagar=True))
+                    return
+                if rota in ('/api/tutores','/api/tutores/editar'):
+                    perfil = consultar_sessao(db, self.token_sessao())
+                    self.responder(200, salvar_tutor(db,dados,perfil,editar=rota.endswith('/editar')))
                     return
                 if rota == '/api/comunicadores/vincular':
                     self.responder(200, salvar_vinculo(db, dados))
@@ -306,8 +334,10 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                         dispositivo = dados['dispositivo'].strip()
                         aluno = con.execute('SELECT a.id,a.nome FROM comunicadores c JOIN alunos a ON a.id=c.aluno_id WHERE c.dispositivo=? AND a.ativo=1', (dispositivo,)).fetchone()
                         aluno_id, aluno_nome = aluno if aluno else (None, None)
-                        con.execute('INSERT OR IGNORE INTO pedidos (id, frase, dispositivo, recebido, prioridade, atualizado, aluno_id, aluno_nome) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                        insercao = con.execute('INSERT OR IGNORE INTO pedidos (id, frase, dispositivo, recebido, prioridade, atualizado, aluno_id, aluno_nome) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                                     (dados['id'], dados['frase'].strip(), dispositivo, instante, prioridade, instante, aluno_id, aluno_nome))
+                        if insercao.rowcount:
+                            registrar_responsavel(con,dados['id'],aluno_id)
                     elif rota in ('/api/confirmar', '/api/atender'):
                         # Serializa leitura e atualização para impedir regressão e
                         # renovação do prazo em ações simultâneas de duas tutoras.
@@ -318,6 +348,11 @@ def criar_servidor(endereco, pasta, modo_demo=False):
                         if not row:
                             self.responder(404, {'erro': 'Este pedido expirou ou não existe mais.'})
                             return
+                        perfil = consultar_sessao(db, self.token_sessao())
+                        if not perfil:
+                            raise ErroAcesso('Entre novamente.',401)
+                        if not pode_atender(con,dados['id'],perfil):
+                            raise ErroAcesso('Este pedido pertence a outro tutor. O histórico é somente para consulta.',403)
                         estado = row[0]
                         if rota == '/api/atender' and estado == 'novo':
                             self.responder(409, {'erro': 'Confirme o recebimento antes de marcar como atendido.'})

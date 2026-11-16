@@ -1,6 +1,6 @@
 # Comunicador acessível MVP
 
-Projeto local com servidor no Raspberry Pi 3 B+ ou computador e portal da tutora no navegador. O portal do aluno abre uma grade de alunos ativos, com foto, nome e tag colorida; tocar no próprio bloco abre a comunicação. Os dois portais atendem celular, tablet e PC; o da tutora prioriza celular e PC, e o do aluno prioriza tablet. A tela do aluno já apresenta categorias, pictogramas e seleção de mensagens. Confirmação, fala, envio e adaptações de acessibilidade continuam nas próximas etapas. A interface Tkinter de 480 × 320 é um protótipo de demonstração existente; essa dimensão não limita o futuro portal do aluno. O uso nos aparelhos e com pessoas da APAE ainda precisa de validação.
+Projeto local com servidor no Raspberry Pi 3 B+ ou computador e portal da tutora no navegador. O portal do aluno abre uma grade de alunos ativos, com foto, nome e tag colorida; tocar no próprio bloco abre a comunicação. Os dois portais atendem celular, tablet e PC; o da tutora prioriza celular e PC, e o do aluno prioriza tablet. A tela do aluno apresenta categorias, pictogramas, confirmação e envio de texto, com fila persistente para interrupções de conexão. Os perfis de baixa visão, motor, cognitivo e TEA têm padrões próprios de apresentação e interação; sua validação de uso continua pendente. A interface Tkinter de 480 × 320 é um protótipo de demonstração existente; essa dimensão não limita o futuro portal do aluno. O uso nos aparelhos e com pessoas da APAE ainda precisa de validação.
 
 ## Iniciar no VS Code com o perfil de testes
 
@@ -27,6 +27,36 @@ O código de 6 dígitos é um identificador de testes, não um CNPJ validado. O 
 `--demo` cria essa conta somente se ainda não existir uma conta configurada. Também atualiza o antigo acesso padrão de testes, revogando suas sessões. Não substitui contas personalizadas. A conta criada permanece no banco local nas próximas execuções. As credenciais acima são públicas e destinadas apenas à demonstração com dados fictícios.
 
 O IP serve para encontrar o servidor. Mudar o IP não muda instituição, usuário ou senha. A sessão expira em oito horas; ao atualizar o navegador, o portal recupera uma sessão ainda válida. Ao sair, a sessão é revogada no servidor.
+
+## Cadastro e acesso de tutores
+
+Na conta administrativa (`164275 / testedev / 123456` no modo de testes), abra a aba **Tutores** e clique em **Cadastrar tutor**. Informe nome, usuário, senha e os alunos sob responsabilidade. O CNPJ/código da conta administrativa é vinculado automaticamente ao acesso, sem criar outra instituição.
+
+Exemplo de uso:
+
+1. Cadastre o aluno na aba **Alunos**.
+2. Em **Tutores**, crie **Liliane**, usuário `liliane`, senha `123`, e marque os alunos dela.
+3. Saia do portal e entre com instituição `164275`, usuário `liliane` e senha `123`.
+4. O nome Liliane aparece no perfil. **Pedidos pendentes** mostra os chamados dos alunos atribuídos a ela e os chamados sem responsável que forem sorteados para ela. **Histórico** permite consultar os chamados de todos os tutores, inclusive os ainda pendentes, sem ações de atendimento nessa aba.
+
+A senha de três caracteres é permitida somente para tutores da instituição de testes `164275`. Para uma instituição com CNPJ, a senha deve ter pelo menos dez caracteres. O máximo é 128. Usuários são únicos por instituição e não diferenciam maiúsculas/minúsculas; o usuário administrativo não pode ser reutilizado. Senhas ficam derivadas com sal e PBKDF2 e nunca são retornadas pelas APIs ou preenchidas ao editar.
+
+### Responsáveis e permissões
+
+- Nesta versão, cada aluno tem **um tutor responsável por vez**, e um tutor pode acompanhar vários alunos. A seleção fica no formulário do tutor. Alunos de mesmo nome continuam separados pela identificação interna.
+- A conta administrativa gerencia os tutores e vê todos os pendentes, inclusive chamados sem aluno ou sem tutor atribuído. Um tutor comum não pode criar/editar contas de outros tutores.
+- Sem tutor vinculado, cada chamado é sorteado uma vez entre os tutores cadastrados e ativos da instituição. O destinatário fica salvo e não muda ao consultar, atualizar ou reenviar a mesma solicitação. Ativo refere-se ao cadastro, não a estar conectado no momento.
+- Com tutor vinculado e ativo, o chamado vai exclusivamente a ele e recebe a tag **Responsável**, também preservada no histórico. Chamados sorteados não recebem essa tag. Se o responsável estiver inativo, não há desvio automático para outro tutor: o administrador acompanha até a reativação ou troca do vínculo.
+- Sem nenhum tutor ativo, o chamado fica pendente sob acompanhamento administrativo. Ao cadastrar/reativar um tutor, os chamados sem vínculo que estavam sem destinatário são distribuídos.
+- O tutor pode confirmar e atender somente seus chamados. Essa regra também é verificada no servidor; alterar a requisição ou consultar o histórico não permite atender chamados de outra pessoa.
+- O histórico é compartilhado por definição e mostra o nome do responsável registrado. A API de pedidos entrega os registros necessários ao histórico compartilhado e informa `meu_pedido` para a visualização de pendentes; o histórico comum não representa isolamento de leitura entre tutores.
+- A troca de responsável exige confirmação quando um aluno já pertence a outro tutor. Os **pendentes** mudam para o novo responsável. Os **atendidos** preservam o responsável e o horário de atendimento anteriores, sem renovar as 48 horas de retenção.
+- Desativar o tutor bloqueia o login. Pendentes recebidos por sorteio são encaminhados a outro tutor ativo, se houver; pedidos dos alunos vinculados continuam sob acompanhamento administrativo até reativação ou transferência. Os chamados atendidos permanecem intactos. Não há exclusão definitiva de tutores nesta etapa.
+- Edições do tutor revogam suas sessões; deixar a senha vazia na edição preserva a senha atual. Redefinir a conta administrativa também revoga as sessões dos tutores. Reiniciar o servidor preserva os cadastros e os vínculos.
+
+O recebimento de pedidos continua usando a identificação do aluno resolvida no servidor. Chamados de comunicadores físicos precisam do vínculo de aparelho para identificar o aluno; pedidos anteriores à configuração desse vínculo permanecem sem aluno. O portal web do aluno permite escolher, confirmar e enviar mensagens de texto, com fila persistente no navegador. Fala e sons serão tratados nos modos de acessibilidade.
+
+Esta instalação continua atendendo uma instituição por servidor/banco; não foi criada uma plataforma com várias instituições no mesmo banco. Os endpoints administrativos de cadastro são `/api/tutores` e `/api/tutores/editar`; `tutores.py` guarda vínculos e responsáveis, e `tutores.js` implementa a interface. `tests/test_tutores.py` e `tests/test_portal_tutores.cjs` verificam login individual, autorização, cadastro, transferências e histórico compartilhado.
 
 ## Pedidos fictícios
 
@@ -248,3 +278,108 @@ A suíte verifica login, rejeição de credenciais, expiração e revogação de
 
 O cadastro foi ensaiado no Edge em larguras de computador e celular com banco temporário e dados fictícios. Ainda faltam celular real, áudio, leitor de tela, Raspberry físico e ensaio na rede da apresentação. A aplicação dos perfis às interfaces do aluno continua sendo uma próxima etapa. A identificação histórica foi verificada após renomear, trocar o aluno do aparelho, excluir o cadastro, recarregar o portal e reiniciar o servidor.
 O ensaio de interface em `tests/test_portal_alunos.cjs` usa Playwright e inicia um servidor com banco temporário próprio, sem alterar os cadastros da instalação. Para executá-lo, disponibilize o pacote Playwright e seu Chromium e use `node tests/test_portal_alunos.cjs`. Opcionalmente, `PYTHON_TEST` seleciona o executável Python e `TEST_BROWSER=msedge` usa o Edge instalado. As capturas ficam em `tmp/`, fora do Git.
+
+
+## Modo aluno — confirmação da mensagem
+
+- [x] Abrir uma confirmação com pictograma e frase completa ao escolher qualquer mensagem, inclusive Ajuda.
+- [x] Oferecer Voltar, preservando a categoria e devolvendo o foco ao botão escolhido; Escape também volta.
+- [x] Manter o foco dentro da confirmação e preservar a escolha em atualizações do mesmo aluno.
+- [x] Limpar a confirmação ao trocar de aluno, perder o acesso ou detectar cadastro inativo/falha de conexão.
+- [ ] Ativar Falar e enviar com fala e envio autenticado pelo aluno selecionado.
+
+Na primeira entrega da confirmação, Falar e enviar ficou desabilitado. As etapas seguintes abaixo substituíram esse botão por Enviar mensagem e acrescentaram envio de texto e fila persistente. A confirmação usa diálogo nativo e layout para celular, tablet e PC.
+
+
+## Modo aluno — envio de texto pela confirmação
+
+- [x] Ativar Enviar mensagem na confirmação, sem fala, gravação ou reprodução de áudio.
+- [x] Exigir sessão do aluno e resolver identidade, frase e prioridade no servidor; recusar aluno inativo ou identificação alterada.
+- [x] Usar o encaminhamento existente: responsável ativo ou sorteio entre tutores ativos, com as exceções documentadas.
+- [x] Bloquear toques repetidos e preservar o identificador ao tentar novamente após falha de rede, sem duplicar ou sortear novamente.
+- [x] Mostrar sucesso somente após confirmação do servidor; em falha, permitir nova tentativa no diálogo.
+- [ ] Implementar retorno sonoro na etapa de modos de acessibilidade.
+- [x] Implementar fila offline persistente no navegador.
+
+O botão Enviar mensagem salva a confirmação na fila persistente antes do envio. A mensagem chega à tutora sem reprodução de voz. O funcionamento e os limites da fila estão descritos abaixo.
+
+
+## Fila offline do portal do aluno
+
+Depois de abrir o portal e selecionar um aluno com conexão, é possível confirmar mensagens durante uma interrupção da rede. **Mensagem guardada. Aguardando envio à tutora** significa que a tutora ainda não confirmou o recebimento; somente a resposta do servidor permite mostrar **Mensagem enviada à tutora**.
+
+- Cada confirmação é gravada no IndexedDB antes do POST. A fila contém somente ID aleatório da confirmação, ID interno do aluno, código da opção e horário local; erros definitivos acrescentam um indicador de bloqueio. Não grava fotos, nomes, senhas ou cookies.
+- Com a página visível, tenta enviar a cada cinco segundos, aumentando o intervalo de falhas até trinta segundos. Voltar à página ou recuperar a rede também permite retomar. O botão Tentar enviar agora antecipa a tentativa. Navegador fechado ou suspenso não envia em segundo plano.
+- O mesmo aluno precisa estar selecionado. Trocar de aluno preserva os pendentes anteriores, sem atribuí-los ao novo aluno. Depois de recarregar ou reabrir a página, escolha novamente o aluno que criou os pedidos; se o acesso expirou, a tutora precisa liberar o navegador.
+- O servidor exige sessão válida e aluno ativo em cada envio. Erros de autenticação suspendem o envio; solicitações recusadas por dados inválidos/identificação alterada ficam guardadas e sinalizadas para revisão, sem tentativa automática daquele registro.
+- O ID é preservado após resposta perdida, troca de sessão e reinício. Um recibo técnico com dois valores derivados (`id` e `assinatura`) permanece no servidor, sem armazenar nome, frase ou foto, para não recriar o chamado mesmo após a limpeza do histórico. Esses recibos não são apagados pela retenção de 48h; a remoção do conteúdo do histórico continua igual.
+- Limpar fila deste navegador exige confirmação e descarta todos os pendentes locais, de todos os alunos. Não apaga pedidos já recebidos no servidor. Pedidos bloqueados ou de alunos excluídos também podem ser descartados assim. Ao excluir um aluno, revise as filas dos aparelhos que ele utilizou; o servidor não tem acesso ao armazenamento local dos navegadores.
+- Falha ou falta de espaço no armazenamento impede a confirmação: o portal informa que nada foi enviado e mantém a mensagem aberta. Limpar dados do navegador também apaga a fila. A fila depende do mesmo navegador e endereço do servidor (protocolo, IP/nome e porta); outro endereço tem armazenamento separado.
+
+Esta função **não disponibiliza o portal inteiro para abrir sem rede**: o primeiro carregamento e a escolha do aluno exigem o servidor. Com a página já aberta, a tela do aluno é preservada durante falha de conexão, com aviso de que os pedidos aguardam envio. O servidor revalida o cadastro ao reconectar. O encaminhamento usa os vínculos e tutores ativos no momento do primeiro recebimento no servidor; o horário do chamado é o do recebimento, e o horário local só organiza a fila. Não há áudio nesta etapa.
+
+
+## Perfil fixo de baixa visão — implementação
+
+Aplicado automaticamente quando o cadastro do aluno usa `baixa_visao`, sem controles de personalização no MVP. Os demais perfis mantêm a grade padrão.
+
+- [x] Implementado: fundo escuro, texto claro, contornos fortes, textos/pictogramas ampliados e botões com altura mínima de 76 px CSS.
+- [x] Implementado: uma categoria ou mensagem por vez, contador de posição e Anterior/Próxima; sem avanço automático.
+- [x] Implementado: barra superior com Voltar e Ajuda, preservada durante a rolagem; a confirmação tem sua própria barra equivalente.
+- [x] Implementado: leitura da opção por voz no aparelho do aluno ao tocar/ativar, com idioma pt-BR, cancelamento da fala anterior e aviso visual em falha. Ajuda abre confirmação, sem enviar automaticamente.
+- [x] Implementado: parar a voz ao voltar, sair, ocultar a página ou trocar de aluno; aplicar alterações do perfil feitas pela tutora na atualização.
+- [ ] Validação de Eduardo: aparência, organização e navegação.
+- [ ] Validação no tablet real: voz audível em português, orientação, volume e toque.
+- [ ] Validação com usuários/equipe: conforto do contraste, leitura e compreensão.
+
+Os testes técnicos do navegador usam voz simulada para conferir as chamadas e o comportamento em falha; não comprovam áudio audível. A fala usa SpeechSynthesis e as vozes disponíveis no aparelho; disponibilidade, português e funcionamento sem rede precisam ser conferidos no tablet. Referência técnica: [MDN — vozes disponíveis](https://developer.mozilla.org/en-US/docs/Web/API/SpeechSynthesis/getVoices). Não há gravação de microfone nem áudio enviado à tutora. O envio de texto e a fila offline continuam iguais.
+
+Nesta seção, itens marcados como implementados descrevem código entregue. **A validação de uso fica pendente até Eduardo confirmar**, independentemente de testes automáticos executados.
+
+
+## Perfil motor fixo — implementação
+
+Aplicado automaticamente ao aluno com perfil `motora`, sem personalização no MVP. O foco é facilitar a precisão do toque: grade com no máximo duas colunas (uma em telas menores), espaços de 32 px CSS e áreas de ação de pelo menos 88 px de altura. A confirmação mantém Voltar acima e Enviar abaixo, separados por 48 px e com altura mínima de 96 px. Mantém o tema claro; não usa voz nem o carrossel de baixa visão.
+
+- [x] Implementado: áreas maiores e espaçamento próprio para seleção, navegação e confirmação.
+- [x] Implementado: ativar no click nativo, após soltar; cancelar se o ponteiro sair do botão, mesmo que volte antes da soltura; tratar pointercancel sem bloquear rolagem/zoom.
+- [x] Implementado: intervalo fixo de 600 ms entre ativações para evitar repetição inclusive entre telas diferentes. Não é necessário manter pressionado; um toque comum basta.
+- [x] Implementado: conservar Tab, Enter, Espaço e Escape, com confirmação explícita; a proteção é removida ao mudar para outro perfil.
+- [ ] Validação de Eduardo: disposição, espaçamento e adequação do intervalo.
+- [ ] Validação no tablet real: precisão, tremores, cancelamento, rolagem e uso com dispositivos de apoio.
+- [ ] Validação com usuários/equipe: adequação do padrão às necessidades de cada aluno.
+
+Os perfis são padrões de interface vinculados ao cadastro, não uma avaliação das capacidades da pessoa. Neste MVP, alunos com o mesmo perfil recebem o mesmo conjunto de adaptações. Não há varredura automática, configuração de acionadores nem ativação ao manter pressionado. O cancelamento segue o princípio de [ativação ao soltar do W3C](https://www.w3.org/WAI/WCAG22/Understanding/pointer-cancellation.html). Os testes técnicos não substituem a validação de Eduardo, que permanece pendente.
+
+
+## Perfil cognitivo fixo — implementação
+
+Aplicado automaticamente ao perfil `intelectual` (Acessibilidade cognitiva no cadastro), sem personalização no MVP. A entrada traz Água, Banheiro, Comida, Descanso, Não estou bem e Ajuda diretamente; Mais mensagens abre as oito opções restantes, com Voltar para os seis pedidos principais. Todos os textos de envio continuam vindo do catálogo canônico.
+
+- [x] Implementado: seis pedidos diretos, sem escolher categorias antes.
+- [x] Implementado: cartões com pictograma e rótulo curto; frase completa na confirmação.
+- [x] Implementado: oito opções adicionais em Mais mensagens, sem retirar mensagens do catálogo.
+- [x] Implementado: confirmação Você escolheu, Voltar e Enviar; escolher não envia automaticamente.
+- [x] Implementado: estados Aguardando envio e Mensagem enviada com texto e estilos distintos, sem temporizador para desaparecer. Uma nova escolha ou troca de aluno pode limpar o aviso anterior.
+- [x] Implementado: sem voz, carrossel ou intervalo entre toques do perfil motor; mantém confirmação, fila e prevenção de duplicação compartilhadas.
+- [ ] Validação de Eduardo: organização, rótulos, confirmação e retorno visual.
+- [ ] Validação no tablet real: toque, leitura e orientação da tela.
+- [ ] Validação com usuários/equipe: compreensão dos pictogramas e adequação dos seis pedidos iniciais.
+
+Os testes técnicos verificam comportamento e apresentação; não comprovam compreensão nem adequação individual. Alunos com este perfil recebem o mesmo padrão nesta versão. Sua validação continua pendente até confirmação explícita de Eduardo.
+
+
+## Perfil TEA fixo — implementação
+
+Aplicado automaticamente ao perfil `tea`, com foco na previsibilidade da interação. As categorias Necessidades, Sentimentos e Conversar permanecem visíveis, sempre na mesma ordem. A entrada começa em Necessidades; só muda de categoria por escolha do usuário. A confirmação e o resultado mantêm a categoria atual.
+
+- [x] Implementado: navegação persistente por categorias, com texto, pictograma e indicação da categoria selecionada.
+- [x] Implementado: grade de duas colunas; Ajuda ocupa sempre a segunda coluna da terceira linha. A célula anterior pode ficar vazia em categorias com quatro mensagens, para preservar a posição de Ajuda. As 14 mensagens continuam disponíveis.
+- [x] Implementado: sequência visual Escolher → Confirmar → Resultado, com etapa atual indicada por texto, contorno/estilo e aria-current, também dentro da confirmação.
+- [x] Implementado: resultado distingue pedido guardado na fila de mensagem recebida pelo servidor; não avança nem retorna de categoria por temporizador.
+- [x] Implementado: sem fala automática, animações, carrossel, restrição de intervalo do perfil motor ou menu direto dos seis essenciais do cognitivo.
+- [ ] Validação de Eduardo: previsibilidade, etapas, posição de Ajuda e organização.
+- [ ] Validação no tablet real: orientação, toque, zoom e navegação.
+- [ ] Validação com usuários/equipe: adequação desse padrão aos alunos que o utilizarão.
+
+TEA não define uma preferência visual ou sensorial única. Este é um padrão fixo proposto para o MVP, aplicado pelo cadastro; não é uma avaliação clínica nem garantia de adequação a todos os alunos. Testes técnicos não substituem a validação de Eduardo e da equipe, que permanece pendente.

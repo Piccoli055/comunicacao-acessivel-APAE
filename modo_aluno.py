@@ -16,6 +16,7 @@ def preparar_modo_aluno(db):
         for nome, definicao in [('aluno_id','TEXT'), ('manual','INTEGER NOT NULL DEFAULT 0')]:
             if nome not in colunas:
                 con.execute(f'ALTER TABLE sessoes_comunicador ADD COLUMN {nome} {definicao}')
+        con.execute('CREATE TABLE IF NOT EXISTS recibos_envio_web (id TEXT PRIMARY KEY, assinatura TEXT NOT NULL)')
         con.execute('CREATE TABLE IF NOT EXISTS sessoes_entrada (token_hash TEXT PRIMARY KEY, expira REAL NOT NULL)')
         con.execute('DELETE FROM sessoes_entrada WHERE expira<=?', (time.time(),))
         con.execute('DELETE FROM sessoes_comunicador WHERE expira <= ?', (time.time(),))
@@ -153,3 +154,59 @@ def selecionar_aluno(db, aluno_id, acesso, token_anterior=''):
         con.execute('DELETE FROM sessoes_comunicador WHERE token_hash=? OR expira<=?',(resumo,instante))
         con.execute('INSERT INTO sessoes_comunicador (token_hash,dispositivo,expira,aluno_id,manual) VALUES (?,?,?,?,1)',(resumo_token(token),dispositivo,instante+DURACAO_SESSAO,aluno_id))
     return token
+
+
+def enviar_mensagem(db, token, dados):
+    """Registra uma confirmação da sessão atual; o navegador não escolhe o destinatário."""
+    import re
+    from datetime import datetime, timezone
+    from mensagens import OPCOES_ALUNO
+    from tutores import registrar_responsavel
+
+    identificador = dados.get('id')
+    mensagem = dados.get('mensagem')
+    if not isinstance(identificador,str) or not re.fullmatch(r'[a-f0-9]{32}',identificador):
+        raise ErroCadastro('Confirmação inválida.')
+    if not isinstance(mensagem,str) or mensagem not in OPCOES_ALUNO:
+        raise ErroCadastro('Escolha uma mensagem disponível.')
+    resumo = resumo_token(token)
+    with closing(sqlite3.connect(db, timeout=10)) as con, con:
+        con.execute('BEGIN IMMEDIATE')
+        sessao = con.execute("""
+            SELECT s.dispositivo,a.id,a.nome,a.ativo FROM sessoes_comunicador s
+            LEFT JOIN comunicadores c ON c.dispositivo=s.dispositivo
+            LEFT JOIN alunos a ON a.id=CASE WHEN s.manual=1 THEN s.aluno_id ELSE c.aluno_id END
+            WHERE s.token_hash=? AND s.expira>?
+        """,(resumo,time.time())).fetchone()
+        if not sessao:
+            raise ErroAcesso('O acesso expirou. Escolha seu nome novamente.',401)
+        dispositivo,aluno_id,nome,ativo = sessao
+        if not aluno_id or not ativo or dados.get('aluno_id') != aluno_id:
+            raise ErroCadastro('A identificação mudou. Escolha seu nome novamente antes de enviar.',409)
+        # Permite reenvio após nova seleção do mesmo aluno, sempre com sessão válida.
+        pedido_id = 'web-'+hashlib.sha256((aluno_id+':'+identificador).encode()).hexdigest()
+        assinatura = hashlib.sha256((pedido_id+':'+mensagem).encode()).hexdigest()
+        recibo = con.execute('SELECT assinatura FROM recibos_envio_web WHERE id=?',(pedido_id,)).fetchone()
+        if recibo:
+            if recibo[0] != assinatura:
+                raise ErroCadastro('Esta confirmação já foi usada para outra mensagem.',409)
+            return {'ok':True}
+        # Compatibilidade com uma confirmação aberta antes da atualização.
+        antigo_id = 'web-'+hashlib.sha256((resumo+':'+identificador).encode()).hexdigest()
+        legado = con.execute('SELECT aluno_id,frase FROM pedidos WHERE id=?',(antigo_id,)).fetchone()
+        frase = OPCOES_ALUNO[mensagem]['frase']
+        anterior = con.execute('SELECT aluno_id,frase,dispositivo FROM pedidos WHERE id=?',(pedido_id,)).fetchone()
+        if legado:
+            if legado != (aluno_id,frase):
+                raise ErroCadastro('Esta confirmação já foi usada para outra mensagem.',409)
+        elif anterior:
+            if anterior[:2] != (aluno_id,frase):
+                raise ErroCadastro('Esta confirmação já foi usada para outra mensagem.',409)
+        else:
+            instante = datetime.now(timezone.utc).isoformat()
+            con.execute('INSERT INTO pedidos (id,frase,dispositivo,recebido,prioridade,atualizado,aluno_id,aluno_nome) VALUES (?,?,?,?,?,?,?,?)',
+                        (pedido_id,frase,dispositivo,instante,'ajuda' if mensagem=='ajuda' else 'normal',instante,aluno_id,nome))
+            registrar_responsavel(con,pedido_id,aluno_id)
+        # Recibo opaco impede recriar chamados cujo histórico já expirou.
+        con.execute('INSERT INTO recibos_envio_web VALUES (?,?)',(pedido_id,assinatura))
+    return {'ok':True}

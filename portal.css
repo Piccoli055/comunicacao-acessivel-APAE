@@ -30,3 +30,7 @@
 
 /* Acesso principal ao aluno: após o login da tutora, no topo à direita. */
 .cabecalho{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start}.acoes-cabecalho{display:flex;flex-direction:column;align-items:flex-end;gap:12px}.acesso-aluno{min-height:48px;text-decoration:none;white-space:nowrap}.acoes-cabecalho .etiqueta-demo{margin:0}@media(max-width:600px){.cabecalho{grid-template-columns:minmax(0,1fr);gap:18px}.acoes-cabecalho{grid-column:1;grid-row:1;justify-self:end}.cabecalho>div:first-child{grid-column:1;grid-row:2}.acesso-aluno{font-size:.85rem}}
+
+.campos-tutor{align-items:start}.titulo-alunos-tutor{font-size:1rem;margin:28px 0 8px}.alunos-tutor{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:16px}.opcao-aluno-tutor{display:flex;align-items:center;gap:12px;border:1px solid var(--linha);padding:12px;border-radius:10px;font-size:.82rem;font-weight:500;line-height:1.6;margin:0;overflow-wrap:anywhere}.opcao-aluno-tutor input{width:22px;height:22px;min-height:22px;flex-shrink:0;accent-color:var(--verde)}@media(max-width:700px){.alunos-tutor{grid-template-columns:minmax(0,1fr)}}
+
+.selo.responsavel{background:#e5edff;color:#254782}.registro-mensagem .selo+.selo{margin-left:6px}
